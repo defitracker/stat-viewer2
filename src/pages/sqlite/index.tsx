@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button";
 import { useSqliteStore } from "@/util/sqliteStore";
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
@@ -24,7 +23,7 @@ export default function SqliteHome() {
   return (
     <SQLiteLayout>
       <>
-        <p>Select table</p>
+        <p>👈 Select table</p>
       </>
     </SQLiteLayout>
   );

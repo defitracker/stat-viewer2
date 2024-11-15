@@ -124,7 +124,7 @@ export default function TablePage() {
     return (
       <Badge
         variant={"outline"}
-        className="cursor-pointer bg-blue-500/10"
+        className="cursor-pointer bg-blue-300/10 hover:bg-blue-500/30"
         onClick={() => {
           const tableToFetch = type;
           const res = db.exec(`SELECT * FROM ${tableToFetch} WHERE id = "${value}"`)[0];

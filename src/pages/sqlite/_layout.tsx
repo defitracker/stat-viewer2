@@ -2,7 +2,6 @@ import { AppSidebar } from "@/components/app-sidebar";
 import {
   Breadcrumb,
   BreadcrumbItem,
-  BreadcrumbLink,
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
@@ -27,6 +26,7 @@ export default function SQLiteLayout({ children }: { children: React.ReactNode }
   return (
     <SidebarProvider>
       <AppSidebar
+        sublocation="sqlite"
         navMain={[
           {
             title: "Tables",
