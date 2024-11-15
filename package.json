@@ -1,7 +1,7 @@
 {
   "name": "stat-viewer2",
   "private": true,
-  "homepage": "https://defitracker.github.io/stat-viewer2",
+  "homepage": "https://defitracker.github.io/stat-viewer2/",
   "version": "0.0.0",
   "type": "module",
   "scripts": {

@@ -1,7 +1,7 @@
 import path from "path";
 import { defineConfig, Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
-import Pages from 'vite-plugin-pages'
+import Pages from "vite-plugin-pages";
 
 import commonjs from "@rollup/plugin-commonjs";
 
@@ -42,6 +42,15 @@ export default defineConfig({
   base: "/stat-viewer2/",
   build: {
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        // Prevents Rollup from creating separate chunks for dynamic imports
+        inlineDynamicImports: true,
+        // Optionally, ensure that all dependencies are bundled together
+        manualChunks: undefined,
+      },
+    },
+    cssCodeSplit: false,
   },
   resolve: {
     alias: {
