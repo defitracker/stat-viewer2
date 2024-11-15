@@ -14,8 +14,9 @@ import { Link } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 
 export default function SQLiteLayout({ children }: { children: React.ReactNode }) {
-  const { tables } = useSqliteStore(
+  const { tables, filename } = useSqliteStore(
     useShallow((state) => ({
+      filename: state.filename,
       tables: state.tables,
     }))
   );
@@ -60,6 +61,7 @@ export default function SQLiteLayout({ children }: { children: React.ReactNode }
               )}
             </BreadcrumbList>
           </Breadcrumb>
+          <div className="ml-auto">{filename}</div>
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4">{children}</div>
       </SidebarInset>

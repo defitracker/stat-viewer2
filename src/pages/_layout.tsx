@@ -51,7 +51,7 @@ export default function IndexLayout({ children, topRight }: { children: React.Re
                 onClick: async () => {
                   const db = await readSqlFile(file.data);
                   const tables = readDbTables(db);
-                  useSqliteStore.setState({ db, tables });
+                  useSqliteStore.setState({ db, tables, filename: file.name });
                   navigate("/sqlite");
                 },
                 rightItem: (

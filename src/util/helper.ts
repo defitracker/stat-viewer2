@@ -2,6 +2,10 @@ import initSqlJs, { Database } from "sql.js";
 
 export async function readSqlFile(file: Blob) {
   const arrayBuffer = await file.arrayBuffer();
+  return readSqlFileBuffer(arrayBuffer);
+}
+
+export async function readSqlFileBuffer(arrayBuffer: ArrayBuffer) {
   const SQL = await initSqlJs({
     locateFile: (file) => `https://sql.js.org/dist/${file}`,
   });

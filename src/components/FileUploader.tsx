@@ -13,7 +13,7 @@ interface FileUploaderProps {
 }
 
 const FileUploader: React.FC<FileUploaderProps> = ({ onFilesAccepted, children }) => {
-  const [errorMessages, setErrorMessages] = useState<string[]>([]);
+  const [_, setErrorMessages] = useState<string[]>([]);
 
   const onDrop = useCallback(
     (acceptedFiles: File[], fileRejections: FileRejection[]) => {
@@ -37,7 +37,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({ onFilesAccepted, children }
     [onFilesAccepted]
   );
 
-  const { getRootProps, getInputProps, isDragActive, isDragReject, isDragAccept } = useDropzone({
+  const { getRootProps, getInputProps } = useDropzone({
     onDrop,
     accept: ACCEPTED_FILE_TYPES,
     // multiple: true,

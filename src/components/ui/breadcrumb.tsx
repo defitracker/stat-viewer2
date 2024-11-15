@@ -3,7 +3,6 @@ import { Slot } from "@radix-ui/react-slot"
 import { ChevronRight, MoreHorizontal } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { Link } from "react-router-dom"
 
 const Breadcrumb = React.forwardRef<
   HTMLElement,
