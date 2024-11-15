@@ -8,13 +8,28 @@ import SQLiteLayout from "./_layout";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCaption, TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { getExplorerUrl } from "@/util/helper";
 
 enum ValueType {
   Token = "Token",
   Route = "Route",
+  PairData = "PairData",
   Network = "Network",
   Event = "Event",
+  Iteration = "Iteration",
+
+  _Address = "_Address",
+  _TxHash = "_TxHash",
+  _BlockNumber = "_BlockNumber",
+
   Unknown = "Unknown",
+}
+
+function buildExplorerFullUrl(explorerUrl: string, valueType: ValueType, value: string) {
+  if (valueType === ValueType._Address) return `${explorerUrl}/address/${value}`;
+  if (valueType === ValueType._TxHash) return `${explorerUrl}/tx/${value}`;
+  if (valueType === ValueType._BlockNumber) return `${explorerUrl}/block/${value}`;
+  return "#";
 }
 
 function bringColumnsValuesToItem(columns: string[], values: any[]) {
@@ -72,36 +87,36 @@ export default function TablePage() {
 
   const itemToDisplay = selectedItems.length > 0 ? selectedItems[selectedItems.length - 1] : null;
 
-  const getElement = (value: any, valueType: ValueType) => {
-    if (Array.isArray(value)) return getArrayElement(value, valueType);
-    if (typeof value === "object") return getObjectElement(value, valueType);
+  const getElement = (value: any, valueType: ValueType, rootCtx: Record<string, any>) => {
+    if (Array.isArray(value)) return getArrayElement(value, valueType, rootCtx);
+    if (typeof value === "object") return getObjectElement(value, valueType, rootCtx);
     return `${value}`;
   };
 
-  const getArrayElement = (values: any[], valueType: ValueType) => {
+  const getArrayElement = (values: any[], valueType: ValueType, rootCtx: Record<string, any>) => {
     return (
       <div className="flex flex-col gap-1">
         <div>Array of {values.length}:</div>
         <div className="flex flex-row gap-1 flex-wrap">
           {values.map((value) => {
             if (typeof value === "string" || typeof value === "number") {
-              return renderValueWithType(value, valueType);
+              return renderValueWithType(value, valueType, rootCtx);
             }
-            return <Badge variant={"secondary"}>{getElement(value, valueType)}</Badge>;
+            return <Badge variant={"secondary"}>{getElement(value, valueType, rootCtx)}</Badge>;
           })}
         </div>
       </div>
     );
   };
 
-  const getObjectElement = (data: Record<string, any>, valueType: ValueType) => {
+  const getObjectElement = (data: Record<string, any>, valueType: ValueType, rootCtx: Record<string, any>) => {
     return (
       <Table>
         <TableBody>
           {Object.entries(data).map(([key, value]) => (
             <TableRow key={key}>
               <TableCell className="text-nowrap font-medium">{key}</TableCell>
-              <TableCell className="break-all">{getElement(value, valueType)}</TableCell>
+              <TableCell className="break-all">{getElement(value, valueType, rootCtx)}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -110,50 +125,100 @@ export default function TablePage() {
   };
 
   const getValueType = (key: string) => {
+    if (["iterationIdsJsonList"].includes(key)) return ValueType.Iteration;
     if (["eventId"].includes(key)) return ValueType.Event;
-    if (["tokenId"].includes(key)) return ValueType.Token;
+    if (["routePairsIdsJsonList"].includes(key)) return ValueType.PairData;
+    if (["tokenId", "token1id", "token2id"].includes(key)) return ValueType.Token;
     if (["routesAIdsJsonList", "routesBIdsJsonList", "dependantRoutesIdsJsonList"].includes(key))
       return ValueType.Route;
     if (["networkId", "greenNetwork", "redNetwork", "networkA", "networkB"].includes(key)) return ValueType.Network;
+
+    if (["address", "poolAddress"].includes(key)) return ValueType._Address;
+    if (["txHash"].includes(key)) return ValueType._TxHash;
+    if (["blockNumber"].includes(key)) return ValueType._BlockNumber;
+
     return ValueType.Unknown;
   };
 
-  const renderValueWithType = (value: any, type: ValueType) => {
-    if (type === ValueType.Unknown) return <Badge variant={"outline"}>{value}</Badge>;
+  const renderValueWithType = (value: any, type: ValueType, rootCtx: Record<string, any>, key?: string) => {
+    if (key === "receiveTime") {
+      return (
+        <Badge variant={"outline"}>
+          {new Date(value).toUTCString()} | {value}
+        </Badge>
+      );
+    }
 
-    return (
-      <Badge
-        variant={"outline"}
-        className="cursor-pointer bg-blue-300/10 hover:bg-blue-500/30"
-        onClick={() => {
-          const tableToFetch = type;
-          const res = db.exec(`SELECT * FROM ${tableToFetch} WHERE id = "${value}"`)[0];
-          const item = bringColumnsValuesToItem(res.columns, res.values[0]);
-          pushSelectedItem({
-            table: tableToFetch,
-            item: item,
-          });
-        }}
-      >
-        {value}
-      </Badge>
-    );
+    if (type === ValueType.Unknown) {
+      return <Badge variant={"outline"}>{value}</Badge>;
+    }
+
+    if (
+      [
+        ValueType.Token,
+        ValueType.Route,
+        ValueType.Network,
+        ValueType.Event,
+        ValueType.PairData,
+        ValueType.Iteration,
+      ].includes(type)
+    ) {
+      return (
+        <Badge
+          variant={"outline"}
+          className="cursor-pointer bg-blue-300/10 hover:bg-blue-500/30"
+          onClick={() => {
+            const tableToFetch = type;
+            const res = db.exec(`SELECT * FROM ${tableToFetch} WHERE id = "${value}"`)[0];
+            const item = bringColumnsValuesToItem(res.columns, res.values[0]);
+            pushSelectedItem({
+              table: tableToFetch,
+              item: item,
+            });
+          }}
+        >
+          {value}
+        </Badge>
+      );
+    }
+
+    if ([ValueType._Address, ValueType._TxHash, ValueType._BlockNumber].includes(type)) {
+      const network = rootCtx.networkId;
+      if (network) {
+        const explorerUrl = getExplorerUrl(network);
+        const fullUrl = buildExplorerFullUrl(explorerUrl, type, value);
+        return (
+          <a href={fullUrl} target="_blank">
+            <Badge variant={"outline"} className="cursor-pointer bg-green-300/10 hover:bg-green-500/30">
+              {value}
+            </Badge>
+          </a>
+        );
+      }
+      return (
+        <Badge variant={"outline"} className="bg-gray-300/20">
+          {value}
+        </Badge>
+      );
+    }
+
+    return <Badge variant={"outline"}>{value}</Badge>;
   };
 
-  const getTableItemElement = (key: string, value: any) => {
+  const getTableItemElement = (key: string, value: any, rootCtx: Record<string, any>) => {
     const valueType = getValueType(key);
     try {
       if (key.endsWith("JsonList")) {
-        return getElement(JSON.parse(value), valueType);
+        return getElement(JSON.parse(value), valueType, rootCtx);
       }
       if (key.endsWith("Json")) {
-        return getElement(JSON.parse(value), valueType);
+        return getElement(JSON.parse(value), valueType, rootCtx);
       }
 
       if (value === null) return "";
       const stringValue = `${value}`;
       if (stringValue.length === 0) return ``;
-      return renderValueWithType(value, valueType);
+      return renderValueWithType(value, valueType, rootCtx, key);
     } catch (e) {
       return value;
     }
@@ -177,7 +242,9 @@ export default function TablePage() {
                     Object.entries(itemToDisplay.item).map(([key, value]) => (
                       <TableRow key={key}>
                         <TableCell className="font-medium">{key}</TableCell>
-                        <TableCell className="break-all">{getTableItemElement(key, value)}</TableCell>
+                        <TableCell className="break-all">
+                          {getTableItemElement(key, value, itemToDisplay.item)}
+                        </TableCell>
                       </TableRow>
                     ))}
                 </TableBody>
