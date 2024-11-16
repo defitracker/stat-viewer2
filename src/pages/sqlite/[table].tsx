@@ -1,5 +1,5 @@
 import { useSqliteStore } from "@/util/sqliteStore";
-import { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 
@@ -62,27 +62,40 @@ export default function TablePage() {
   if (!tableName) return <></>;
   if (!db) return <></>;
 
-  const res = db.exec(`SELECT * FROM ${tableName};`)[0];
+  const res = useMemo(() => {
+    const t1 = Date.now();
+    console.log(`Selecting * from ${tableName}`);
+    const res = db.exec(`SELECT * FROM ${tableName};`)[0];
+    console.log(`Selected in`, Date.now() - t1);
+    return res;
+  }, [tableName]);
 
   const columnDefs = res.columns.map((column) => ({
     field: column,
   }));
-  let rowsData = [];
-  for (const values of res.values) {
-    const rowData = bringColumnsValuesToItem(res.columns, values);
-    rowsData.push(rowData);
-  }
+  const rowsData = useMemo(() => {
+    let rowsData = [];
+    for (const values of res.values) {
+      const rowData = bringColumnsValuesToItem(res.columns, values);
+      rowsData.push(rowData);
+    }
+    return rowsData;
+  }, [res]);
 
   const [selectedItems, setSelectedItems] = useState<{ table: string; item: Record<string, any> }[]>([]);
 
   const popSelectedItem = () => {
+    const before = selectedItems.length;
     const newSelectedItems = selectedItems.slice(0, selectedItems.length - 1);
     setSelectedItems(newSelectedItems);
+    console.log("Popping selected, was", before);
   };
 
   const pushSelectedItem = (item: (typeof selectedItems)[0]) => {
+    const before = selectedItems.length;
     const newSelectedItems = [...selectedItems, item];
     setSelectedItems(newSelectedItems);
+    console.log("Pushing selected, was", before);
   };
 
   const itemToDisplay = selectedItems.length > 0 ? selectedItems[selectedItems.length - 1] : null;
@@ -98,11 +111,15 @@ export default function TablePage() {
       <div className="flex flex-col gap-1">
         <div>Array of {values.length}:</div>
         <div className="flex flex-row gap-1 flex-wrap">
-          {values.map((value) => {
+          {values.map((value, i) => {
             if (typeof value === "string" || typeof value === "number") {
-              return renderValueWithType(value, valueType, rootCtx);
+              return <React.Fragment key={i}>{renderValueWithType(value, valueType, rootCtx)}</React.Fragment>;
             }
-            return <Badge variant={"secondary"}>{getElement(value, valueType, rootCtx)}</Badge>;
+            return (
+              <Badge key={i} variant={"secondary"}>
+                {getElement(value, valueType, rootCtx)}
+              </Badge>
+            );
           })}
         </div>
       </div>
