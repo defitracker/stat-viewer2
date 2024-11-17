@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Table, TableBody, TableCaption, TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { getExplorerUrl } from "@/util/helper";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 enum ValueType {
   Token = "Token",
@@ -100,20 +101,25 @@ export default function TablePage() {
 
   const itemToDisplay = selectedItems.length > 0 ? selectedItems[selectedItems.length - 1] : null;
 
-  const getElement = (value: any, valueType: ValueType, rootCtx: Record<string, any>) => {
+  const getElement = (value: any, valueType: ValueType | null, rootCtx: Record<string, any>, key?: string) => {
     if (Array.isArray(value)) return getArrayElement(value, valueType, rootCtx);
-    if (typeof value === "object") return getObjectElement(value, valueType, rootCtx);
-    return `${value}`;
+    if (typeof value === "object") return getObjectElement(value, null, rootCtx, key);
+    if (valueType === null) return `${value}`;
+    return renderValueWithType(value, valueType, rootCtx, key);
   };
 
-  const getArrayElement = (values: any[], valueType: ValueType, rootCtx: Record<string, any>) => {
+  const getArrayElement = (values: any[], valueType: ValueType | null, rootCtx: Record<string, any>) => {
     return (
       <div className="flex flex-col gap-1">
         <div>Array of {values.length}:</div>
         <div className="flex flex-row gap-1 flex-wrap">
           {values.map((value, i) => {
             if (typeof value === "string" || typeof value === "number") {
-              return <React.Fragment key={i}>{renderValueWithType(value, valueType, rootCtx)}</React.Fragment>;
+              return (
+                <React.Fragment key={i}>
+                  {renderValueWithType(value, valueType || ValueType.Unknown, rootCtx)}
+                </React.Fragment>
+              );
             }
             return (
               <Badge key={i} variant={"secondary"}>
@@ -126,16 +132,24 @@ export default function TablePage() {
     );
   };
 
-  const getObjectElement = (data: Record<string, any>, valueType: ValueType, rootCtx: Record<string, any>) => {
+  const getObjectElement = (
+    data: Record<string, any>,
+    valueType: ValueType | null,
+    rootCtx: Record<string, any>,
+    key?: string
+  ) => {
     return (
       <Table>
         <TableBody>
-          {Object.entries(data).map(([key, value]) => (
-            <TableRow key={key}>
-              <TableCell className="text-nowrap font-medium">{key}</TableCell>
-              <TableCell className="break-all">{getElement(value, valueType, rootCtx)}</TableCell>
-            </TableRow>
-          ))}
+          {Object.entries(data).map(([key, value]) => {
+            const thisValueType = valueType === null ? getValueType(key) : valueType;
+            return (
+              <TableRow key={key}>
+                <TableCell className="text-nowrap font-medium">{key}</TableCell>
+                <TableCell className="break-all">{getElement(value, thisValueType, rootCtx, key)}</TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     );
@@ -146,7 +160,16 @@ export default function TablePage() {
     if (["eventId"].includes(key)) return ValueType.Event;
     if (["routePairsIdsJsonList"].includes(key)) return ValueType.PairData;
     if (["tokenId", "token1id", "token2id"].includes(key)) return ValueType.Token;
-    if (["routesAIdsJsonList", "routesBIdsJsonList", "dependantRoutesIdsJsonList"].includes(key))
+    if (
+      [
+        "routesAIdsJsonList",
+        "routesBIdsJsonList",
+        "dependantRoutesIdsJsonList",
+        "buyRouteId",
+        "sellRouteId",
+        "routeId",
+      ].includes(key)
+    )
       return ValueType.Route;
     if (["networkId", "greenNetwork", "redNetwork", "networkA", "networkB"].includes(key)) return ValueType.Network;
 
@@ -158,6 +181,9 @@ export default function TablePage() {
   };
 
   const renderValueWithType = (value: any, type: ValueType, rootCtx: Record<string, any>, key?: string) => {
+    if (["routeId", "sellRouteId"].includes(key || "")) {
+      value = `${value}`.replace("rev_", "");
+    }
     if (key === "receiveTime") {
       return (
         <Badge variant={"outline"}>
@@ -225,11 +251,25 @@ export default function TablePage() {
   const getTableItemElement = (key: string, value: any, rootCtx: Record<string, any>) => {
     const valueType = getValueType(key);
     try {
+      if (
+        ["intermediateResultsJson", "tvResultsJsonList", "extremumResJson", "extremumTvResJson", "buyTxJson"].includes(
+          key
+        )
+      ) {
+        return (
+          <Accordion type="single" collapsible>
+            <AccordionItem value="item-1">
+              <AccordionTrigger className="text-yellow-600 py-1">{`Toggle ${key}`}</AccordionTrigger>
+              <AccordionContent>{getElement(JSON.parse(value), valueType, rootCtx, key)}</AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        );
+      }
       if (key.endsWith("JsonList")) {
         return getElement(JSON.parse(value), valueType, rootCtx);
       }
       if (key.endsWith("Json")) {
-        return getElement(JSON.parse(value), valueType, rootCtx);
+        return getElement(JSON.parse(value), valueType, rootCtx, key);
       }
 
       if (value === null) return "";
