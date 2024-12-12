@@ -173,6 +173,7 @@ function S3FileSelectWrapped({
       timeStarted: number;
       timeUploaded: number;
       remove: 0;
+      remove2: 0;
     };
 
     const onCellClick = async (e: CellClickedEvent<FileData>) => {
@@ -206,6 +207,7 @@ function S3FileSelectWrapped({
         timeStarted: timeStarted,
         timeUploaded: f.LastModified?.getTime() ?? 0,
         remove: 0,
+        remove2: 0,
       };
     });
     const colDefs: ColDef<FileData>[] = [
@@ -258,6 +260,60 @@ function S3FileSelectWrapped({
             }}
           >
             Delete
+          </Button>
+        ),
+      },
+      {
+        field: "remove2",
+        headerName: "Delete BELOW",
+        width: 160,
+        suppressHeaderMenuButton: true,
+        suppressHeaderFilterButton: true,
+        sortable: false,
+        onCellClicked: () => {},
+        cellRenderer: (params: any) => (
+          <Button
+            size={"sm"}
+            variant={"outline"}
+            onClick={async (e) => {
+              if (!e.metaKey) return;
+              const thisFileTimeStarted = params.data.timeStarted as number;
+
+              const manager = S3Connect.getManager();
+              if (!manager) return console.error("No s3 manager");
+
+              const getTimeStarted = (f: S3.Object) => {
+                let timeStarted = parseInt(f.Key?.replace(".sqlite", "").split("_")?.pop() ?? "0");
+                if (isNaN(timeStarted)) timeStarted = 0;
+                return timeStarted;
+              };
+
+              setLoading(true);
+
+              const filesToDelete = files
+                .filter((f) => {
+                  const timeStarted = getTimeStarted(f);
+                  return timeStarted < thisFileTimeStarted;
+                })
+                .sort((a, b) => {
+                  const ta = getTimeStarted(a);
+                  const tb = getTimeStarted(b);
+                  return tb - ta;
+                })
+                .slice(0, 100);
+
+              const filenamesToDelete = filesToDelete.map((f) => f.Key).filter((f) => f !== undefined);
+
+              for (const filenameToDelete of filenamesToDelete) {
+                await manager.deleteObject(filenameToDelete);
+              }
+              const newFiles = files.filter((f) => !filenamesToDelete.includes(f.Key ?? ""));
+              setFiles(newFiles);
+
+              setLoading(false);
+            }}
+          >
+            Delete 100 below
           </Button>
         ),
       },
