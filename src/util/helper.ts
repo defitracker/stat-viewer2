@@ -7,7 +7,12 @@ export async function readSqlFile(file: Blob) {
 
 export async function readSqlFileBuffer(arrayBuffer: ArrayBuffer) {
   const SQL = await initSqlJs({
-    locateFile: (file) => `https://sql.js.org/dist/${file}`,
+    locateFile: (file) => {
+      if (file === "sql-wasm.wasm") {
+        return "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.12.0/sql-wasm.wasm"
+      }
+      return `https://sql.js.org/dist/${file}`;
+    },
   });
   const db = new SQL.Database(new Uint8Array(arrayBuffer));
   return db;
