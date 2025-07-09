@@ -1,5 +1,5 @@
 import { useSqliteStore } from "@/util/sqliteStore";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 
@@ -8,20 +8,37 @@ import SQLiteLayout from "./_layout";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCaption, TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { getExplorerUrl } from "@/util/helper";
+import { decodeTerminationReason, getExplorerUrl } from "@/util/helper";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import BigNumber from "bignumber.js";
+
+import functionPlot, { FunctionPlotOptions } from "function-plot";
+export interface FunctionPlotProps {
+  options?: FunctionPlotOptions;
+}
+export const FunctionPlot: React.FC<FunctionPlotProps> = React.memo(
+  ({ options }) => {
+    const rootEl = useRef(null);
+
+    useEffect(() => {
+      try {
+        functionPlot(Object.assign({}, options, { target: rootEl.current }));
+      } catch (e) {}
+    });
+
+    return <div ref={rootEl} />;
+  },
+  () => false
+);
 
 enum ValueType {
-  Token = "Token",
-  Route = "Route",
-  PairData = "PairData",
-  Network = "Network",
   Event = "Event",
   Iteration = "Iteration",
 
   _Address = "_Address",
   _TxHash = "_TxHash",
   _BlockNumber = "_BlockNumber",
+  _Timestemp = "_Timestemp",
 
   Unknown = "Unknown",
 }
@@ -41,6 +58,97 @@ function bringColumnsValuesToItem(columns: string[], values: any[]) {
     res[columnName] = value;
   }
   return res;
+}
+
+function Plot({ rootCtx }: { rootCtx: Record<string, any> }) {
+  const { tvResultsJsonList, extremumResJson } = rootCtx;
+  const tvResults = (() => {
+    try {
+      return JSON.parse(tvResultsJsonList);
+    } catch (e) {}
+  })();
+  const extremumRes = (() => {
+    try {
+      return JSON.parse(extremumResJson);
+    } catch (e) {}
+  })();
+  if (!tvResults || !extremumRes) return <></>;
+
+  const { a, b, c } = extremumRes;
+  const fn = `${BigNumber(a).toString(10)}x^2 + ${BigNumber(b).toString(10)}x + ${BigNumber(c).toString(10)}`;
+
+  const extremum = BigNumber(extremumRes.extremum);
+  const profitCalc = BigNumber(extremumRes.estimatedProfit);
+
+  const tvAnnotations: FunctionPlotOptions["annotations"] = [];
+  const tvPoints = [];
+  let extremumTvRes = undefined;
+  for (const tvRes of tvResults) {
+    // Exclude extremum
+    if (parseFloat(BigNumber(tvRes.buyAmount).minus(extremum).abs().toString()) < 0.0001) {
+      extremumTvRes = tvRes;
+      continue;
+    }
+    const profit = parseFloat(tvRes.sellReturnAmount) / 10 ** 18 - tvRes.buyAmount;
+    tvPoints.push([parseFloat(tvRes.buyAmount), profit]);
+  }
+
+  let domain_x1 = tvPoints.reduce((acc, cur) => (cur[0] < acc ? cur[0] : acc), 0);
+  let domain_x2 = tvPoints.reduce((acc, cur) => (cur[0] > acc ? cur[0] : acc), 0);
+  let domain_y1 = tvPoints.reduce((acc, cur) => (cur[1] < acc ? cur[1] : acc), 0);
+  let domain_y2 = tvPoints.reduce((acc, cur) => (cur[1] > acc ? cur[1] : acc), 0);
+
+  if (profitCalc.toNumber() > domain_y2) {
+    domain_y2 = profitCalc.toNumber();
+  }
+
+  const data: FunctionPlotOptions["data"] = [];
+  const annotations: FunctionPlotOptions["annotations"] = [...tvAnnotations];
+  data.push({ fn });
+  data.push({
+    fnType: "points",
+    graphType: "scatter",
+    color: "red",
+    attr: { r: 3 },
+    points: tvPoints,
+  });
+  data.push({
+    fnType: "points",
+    graphType: "scatter",
+    color: "purple",
+    attr: { r: 3 },
+    points: [[extremum.toNumber(), profitCalc.toNumber()]],
+  });
+
+  if (extremumTvRes) {
+    const profit = parseFloat(extremumTvRes.sellReturnAmount) / 10 ** 18 - extremumTvRes.buyAmount;
+    data.push({
+      fnType: "points",
+      graphType: "scatter",
+      color: "green",
+      attr: { r: 3 },
+      points: [[extremumTvRes.buyAmount, profit]],
+    });
+
+    if (profit > domain_y2) {
+      domain_y2 = profit;
+    }
+  }
+
+  return (
+    <FunctionPlot
+      options={{
+        target: "",
+        width: 600,
+        height: 300,
+        yAxis: { domain: [domain_y1, Math.max(0.02, domain_y2 * 1.2)] },
+        xAxis: { domain: [domain_x1, domain_x2 * 1.05] },
+        grid: true,
+        data,
+        annotations,
+      }}
+    />
+  );
 }
 
 export default function TablePage() {
@@ -158,24 +266,11 @@ export default function TablePage() {
   const getValueType = (key: string) => {
     if (["iterationIdsJsonList"].includes(key)) return ValueType.Iteration;
     if (["eventId"].includes(key)) return ValueType.Event;
-    if (["routePairsIdsJsonList"].includes(key)) return ValueType.PairData;
-    if (["tokenId", "token1id", "token2id"].includes(key)) return ValueType.Token;
-    if (
-      [
-        "routesAIdsJsonList",
-        "routesBIdsJsonList",
-        "dependantRoutesIdsJsonList",
-        "buyRouteId",
-        "sellRouteId",
-        "routeId",
-      ].includes(key)
-    )
-      return ValueType.Route;
-    if (["networkId", "greenNetwork", "redNetwork", "networkA", "networkB"].includes(key)) return ValueType.Network;
 
     if (["address", "poolAddress"].includes(key)) return ValueType._Address;
     if (["txHash"].includes(key)) return ValueType._TxHash;
-    if (["blockNumber"].includes(key)) return ValueType._BlockNumber;
+    if (["blockNumber", "blockA", "blockB"].includes(key)) return ValueType._BlockNumber;
+    if (["receiveTime", "receiveTimeW"].includes(key)) return ValueType._Timestemp;
 
     return ValueType.Unknown;
   };
@@ -184,7 +279,8 @@ export default function TablePage() {
     if (["routeId", "sellRouteId"].includes(key || "")) {
       value = `${value}`.replace("rev_", "");
     }
-    if (key === "receiveTime") {
+
+    if (type === ValueType._Timestemp) {
       return (
         <Badge variant={"outline"}>
           {new Date(value).toUTCString()} | {value}
@@ -193,19 +289,11 @@ export default function TablePage() {
     }
 
     if (type === ValueType.Unknown) {
-      return <Badge variant={"outline"}>{value}</Badge>;
+      let valueAdj = key === "terminationReason" ? decodeTerminationReason(value) : value;
+      return <Badge variant={"outline"}>{valueAdj}</Badge>;
     }
 
-    if (
-      [
-        ValueType.Token,
-        ValueType.Route,
-        ValueType.Network,
-        ValueType.Event,
-        ValueType.PairData,
-        ValueType.Iteration,
-      ].includes(type)
-    ) {
+    if ([ValueType.Event, ValueType.Iteration].includes(type)) {
       return (
         <Badge
           variant={"outline"}
@@ -226,16 +314,30 @@ export default function TablePage() {
     }
 
     if ([ValueType._Address, ValueType._TxHash, ValueType._BlockNumber].includes(type)) {
-      const network = rootCtx.networkId;
+      let network = rootCtx.network;
+      if (!network && key?.endsWith("A")) {
+        network = rootCtx[`networkA`];
+      }
+      if (!network && key?.endsWith("B")) {
+        network = rootCtx[`networkB`];
+      }
       if (network) {
-        const explorerUrl = getExplorerUrl(network);
-        const fullUrl = buildExplorerFullUrl(explorerUrl, type, value);
+        // Value may include ","
+        let values = typeof value === "string" ? value.split(",") : [value];
         return (
-          <a href={fullUrl} target="_blank">
-            <Badge variant={"outline"} className="cursor-pointer bg-green-300/10 hover:bg-green-500/30">
-              {value}
-            </Badge>
-          </a>
+          <div className="flex gap-1">
+            {values.map((value) => {
+              const explorerUrl = getExplorerUrl(network);
+              const fullUrl = buildExplorerFullUrl(explorerUrl, type, value);
+              return (
+                <a href={fullUrl} target="_blank">
+                  <Badge variant={"outline"} className="cursor-pointer bg-green-300/10 hover:bg-green-500/30">
+                    {value}
+                  </Badge>
+                </a>
+              );
+            })}
+          </div>
         );
       }
       return (
@@ -252,17 +354,31 @@ export default function TablePage() {
     const valueType = getValueType(key);
     try {
       if (
-        ["intermediateResultsJson", "tvResultsJsonList", "extremumResJson", "extremumTvResJson", "buyTxJson"].includes(
-          key
-        )
+        [
+          "intermediateResultsJson",
+          "tvResultsJsonList",
+          "extremumResJson",
+          "extremumTvResJson",
+          "buyTxJson",
+          "routesABuyIdsJsonList",
+          "routesBBuyIdsJsonList",
+          "routesSellIdsJsonList",
+        ].includes(key)
       ) {
+        let plot = <></>;
+        if (key === "extremumResJson") {
+          plot = <Plot rootCtx={rootCtx} />;
+        }
         return (
-          <Accordion type="single" collapsible>
-            <AccordionItem value="item-1">
-              <AccordionTrigger className="text-yellow-600 py-1">{`Toggle ${key}`}</AccordionTrigger>
-              <AccordionContent>{getElement(JSON.parse(value), valueType, rootCtx, key)}</AccordionContent>
-            </AccordionItem>
-          </Accordion>
+          <>
+            {plot}
+            <Accordion type="single" collapsible>
+              <AccordionItem value="item-1">
+                <AccordionTrigger className="text-yellow-600 py-1">{`Toggle ${key}`}</AccordionTrigger>
+                <AccordionContent>{getElement(JSON.parse(value), valueType, rootCtx, key)}</AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </>
         );
       }
       if (key.endsWith("JsonList")) {

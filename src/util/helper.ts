@@ -9,7 +9,7 @@ export async function readSqlFileBuffer(arrayBuffer: ArrayBuffer) {
   const SQL = await initSqlJs({
     locateFile: (file) => {
       if (file === "sql-wasm.wasm") {
-        return "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.12.0/sql-wasm.wasm"
+        return "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.12.0/sql-wasm.wasm";
       }
       return `https://sql.js.org/dist/${file}`;
     },
@@ -44,6 +44,34 @@ export function getExplorerUrl(network: string) {
       return "https://optimistic.etherscan.io";
     case "Gnosis":
       return "https://gnosisscan.io";
+    case "Unichain":
+      return "https://uniscan.xyz";
+    case "Berachain":
+      return "https://berascan.com";
+    case "Sonic":
+      return "https://sonicscan.org";
+    case "Hyperevm":
+      return "https://hyperevmscan.io";
   }
-  return "#";
+  return "https://blockscan.com";
+}
+
+export function decodeTerminationReason(reason: string) {
+  switch (reason) {
+    case "ntt":
+      return `${reason}: No tracking tokens in pool`;
+    case "bale":
+      return `${reason}: Balancer id err`;
+    case "bexe":
+      return `${reason}: Balancer BEX id err`;
+    case "bure":
+      return `${reason}: Balancer BURR id err`;
+    case "uv4e":
+      return `${reason}: Uni v4 id err`;
+    case "unk":
+      return `${reason}: Unknown pool`;
+    case "id":
+      return `${reason}: Iterations disabled`;
+  }
+  return reason;
 }
