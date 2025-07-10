@@ -60,50 +60,49 @@ function bringColumnsValuesToItem(columns: string[], values: any[]) {
   return res;
 }
 
-function Plot({ rootCtx }: { rootCtx: Record<string, any> }) {
-  const { tvResultsJsonList, extremumResJson } = rootCtx;
-  const tvResults = (() => {
-    try {
-      return JSON.parse(tvResultsJsonList);
-    } catch (e) {}
-  })();
+function Plot({ rootCtx, extrKey }: { rootCtx: Record<string, any>; extrKey: string }) {
+  const { tvResultsJsonList } = rootCtx;
   const extremumRes = (() => {
     try {
-      return JSON.parse(extremumResJson);
+      return JSON.parse(rootCtx[extrKey]);
     } catch (e) {}
   })();
-  if (!tvResults || !extremumRes) return <></>;
+  if (!extremumRes) return <></>;
 
-  const { a, b, c } = extremumRes;
+  const { a, b, c, tvs, profits } = extremumRes;
   const fn = `${BigNumber(a).toString(10)}x^2 + ${BigNumber(b).toString(10)}x + ${BigNumber(c).toString(10)}`;
 
   const extremum = BigNumber(extremumRes.extremum);
-  const profitCalc = BigNumber(extremumRes.estimatedProfit);
+  const estimatedProfit = BigNumber(extremumRes.estimatedProfit);
 
-  const tvAnnotations: FunctionPlotOptions["annotations"] = [];
   const tvPoints = [];
-  let extremumTvRes = undefined;
-  for (const tvRes of tvResults) {
-    // Exclude extremum
-    if (parseFloat(BigNumber(tvRes.buyAmount).minus(extremum).abs().toString()) < 0.0001) {
-      extremumTvRes = tvRes;
-      continue;
+  if (tvs && profits) {
+    for (let i = 0; i < tvs.length; i++) {
+      tvPoints.push([BigNumber(tvs[i]).toNumber(), BigNumber(profits[i]).toNumber()]);
     }
-    const profit = parseFloat(tvRes.sellReturnAmount) / 10 ** 18 - tvRes.buyAmount;
-    tvPoints.push([parseFloat(tvRes.buyAmount), profit]);
   }
+
+  const extremumTvRes = (() => {
+    try {
+      const tvResults = JSON.parse(tvResultsJsonList);
+      return tvResults.find((tvRes: any) => {
+        return parseFloat(BigNumber(tvRes.buyAmount).minus(extremum).abs().toString()) < 0.0001;
+      });
+    } catch (e) {
+      return undefined;
+    }
+  })();
 
   let domain_x1 = tvPoints.reduce((acc, cur) => (cur[0] < acc ? cur[0] : acc), 0);
   let domain_x2 = tvPoints.reduce((acc, cur) => (cur[0] > acc ? cur[0] : acc), 0);
   let domain_y1 = tvPoints.reduce((acc, cur) => (cur[1] < acc ? cur[1] : acc), 0);
   let domain_y2 = tvPoints.reduce((acc, cur) => (cur[1] > acc ? cur[1] : acc), 0);
 
-  if (profitCalc.toNumber() > domain_y2) {
-    domain_y2 = profitCalc.toNumber();
+  if (estimatedProfit.toNumber() > domain_y2) {
+    domain_y2 = estimatedProfit.toNumber();
   }
 
   const data: FunctionPlotOptions["data"] = [];
-  const annotations: FunctionPlotOptions["annotations"] = [...tvAnnotations];
   data.push({ fn });
   data.push({
     fnType: "points",
@@ -116,8 +115,8 @@ function Plot({ rootCtx }: { rootCtx: Record<string, any> }) {
     fnType: "points",
     graphType: "scatter",
     color: "purple",
-    attr: { r: 3 },
-    points: [[extremum.toNumber(), profitCalc.toNumber()]],
+    attr: { r: 3.3 },
+    points: [[extremum.toNumber(), estimatedProfit.toNumber()]],
   });
 
   if (extremumTvRes) {
@@ -135,6 +134,10 @@ function Plot({ rootCtx }: { rootCtx: Record<string, any> }) {
     }
   }
 
+  if (domain_x2 == 0) {
+    domain_x2 = 1;
+  }
+
   return (
     <FunctionPlot
       options={{
@@ -145,7 +148,6 @@ function Plot({ rootCtx }: { rootCtx: Record<string, any> }) {
         xAxis: { domain: [domain_x1, domain_x2 * 1.05] },
         grid: true,
         data,
-        annotations,
       }}
     />
   );
@@ -358,6 +360,7 @@ export default function TablePage() {
           "intermediateResultsJson",
           "tvResultsJsonList",
           "extremumResJson",
+          "extremumResFullJson",
           "extremumTvResJson",
           "buyTxJson",
           "routesABuyIdsJsonList",
@@ -365,17 +368,26 @@ export default function TablePage() {
           "routesSellIdsJsonList",
         ].includes(key)
       ) {
-        let plot = <></>;
+        let plotTop = <></>;
+        let plotBtm = <></>;
         if (key === "extremumResJson") {
-          plot = <Plot rootCtx={rootCtx} />;
+          plotTop = <Plot rootCtx={rootCtx} extrKey="extremumResJson" />;
+        }
+        if (key === "extremumResFullJson") {
+          plotBtm = <Plot rootCtx={rootCtx} extrKey="extremumResFullJson" />;
         }
         return (
           <>
-            {plot}
+            {plotTop}
             <Accordion type="single" collapsible>
               <AccordionItem value="item-1">
                 <AccordionTrigger className="text-yellow-600 py-1">{`Toggle ${key}`}</AccordionTrigger>
-                <AccordionContent>{getElement(JSON.parse(value), valueType, rootCtx, key)}</AccordionContent>
+                <AccordionContent>
+                  <>
+                    {plotBtm}
+                    {getElement(JSON.parse(value), valueType, rootCtx, key)}
+                  </>
+                </AccordionContent>
               </AccordionItem>
             </Accordion>
           </>
