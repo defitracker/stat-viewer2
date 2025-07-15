@@ -82,10 +82,10 @@ export class S3Manager {
   public async listObjects() {
     const listParams: ListObjectsRequest = {
       Bucket: this.bucketName,
-      Prefix: "wo_",
+      // Prefix: "wo_",
     };
 
     const data = await this.s3.listObjects(listParams).promise();
-    return data.Contents || [];
+    return data.Contents?.filter(d => d.Key?.startsWith("wo_") || d.Key?.startsWith("evinfo_")) ?? [];
   }
 }

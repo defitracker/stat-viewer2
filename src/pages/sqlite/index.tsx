@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import SQLiteLayout from "./_layout";
+import * as EvInfo from "./stats/EvInfo";
 
 export default function SqliteHome() {
   const { db } = useSqliteStore(
@@ -24,6 +25,7 @@ export default function SqliteHome() {
     <SQLiteLayout>
       <>
         <p>👈 Select table</p>
+        {EvInfo.computeStats()}
       </>
     </SQLiteLayout>
   );

@@ -270,9 +270,9 @@ export default function TablePage() {
     if (["eventId"].includes(key)) return ValueType.Event;
 
     if (["address", "poolAddress"].includes(key)) return ValueType._Address;
-    if (["txHash"].includes(key)) return ValueType._TxHash;
+    if (["txHash", "tx_hash"].includes(key)) return ValueType._TxHash;
     if (["blockNumber", "blockA", "blockB"].includes(key)) return ValueType._BlockNumber;
-    if (["receiveTime", "receiveTimeW"].includes(key)) return ValueType._Timestemp;
+    if (["receiveTime", "receiveTimeW", "receive_time"].includes(key)) return ValueType._Timestemp;
 
     return ValueType.Unknown;
   };
