@@ -86,6 +86,11 @@ export class S3Manager {
     };
 
     const data = await this.s3.listObjects(listParams).promise();
-    return data.Contents?.filter(d => d.Key?.startsWith("wo_") || d.Key?.startsWith("evinfo_")) ?? [];
+    return (
+      data.Contents?.filter((d) => {
+        let check_aa = localStorage.getItem("aa") === "1";
+        return (check_aa && d.Key?.startsWith("aa_")) || d.Key?.startsWith("wo_") || d.Key?.startsWith("evinfo_");
+      }) ?? []
+    );
   }
 }

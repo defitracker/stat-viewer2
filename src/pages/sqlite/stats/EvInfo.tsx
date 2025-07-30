@@ -6,8 +6,6 @@ import ReactJson from "react-json-view";
 
 export const tableName = "EvInfo";
 
-let global_analytics: any | null = null;
-
 export function computeStats() {
   const { db, tables } = useSqliteStore(
     useShallow((state) => ({
@@ -19,11 +17,7 @@ export function computeStats() {
   if (!db) return <></>;
   if (!tables.includes(tableName)) return <></>;
 
-  if (global_analytics === null) {
-    global_analytics = getAnalytics(db);
-  }
-
-  //   console.log("analytics", global_analytics);
+  const analytics = getAnalytics(db);
 
   return (
     <>
@@ -31,12 +25,12 @@ export function computeStats() {
         name={`${tableName}_stats`}
         collapsed={1}
         enableClipboard={false}
-        src={global_analytics}
+        src={analytics}
         displayObjectSize={false}
         displayDataTypes={false}
         quotesOnKeys={false}
       />
-      {/* <div><pre>{JSON.stringify(global_analytics, null, 2)}</pre></div> */}
+      {/* <div><pre>{JSON.stringify(analytics, null, 2)}</pre></div> */}
     </>
   );
 }
@@ -44,7 +38,6 @@ export function computeStats() {
 function getAnalytics(db: Database) {
   console.log(`computing ${tableName} stats...`);
   const tableData = db.exec(`SELECT * FROM ${tableName};`)[0];
-  //   console.log("res", tableData);
 
   // 1) build a name→index map
   const idx = tableData.columns.reduce((acc, name, i) => {
@@ -53,7 +46,6 @@ function getAnalytics(db: Database) {
   }, {} as Record<string, number>);
 
   // 2) group rows by network + txHash
-  //    Map<"network|txHash", { network, entries: Array<{multiId, time}> }>
   const groups = new Map<
     string,
     {
@@ -73,20 +65,13 @@ function getAnalytics(db: Database) {
     groups.get(key)![multiId] = time;
   }
 
-  //   console.log("groups", groups);
-
   // prepare accumulators
   const firstCounts: { [network: string]: { [multiId: string]: number } } = {};
   const lags: any = {};
 
-  type LagData = {
-    txHash: string;
-    lag: number;
-  };
-
   // 3) for each event, find earliest provider & tally
   for (const [key, values] of groups.entries()) {
-    const [network, txHash] = key.split("|");
+    const [network] = key.split("|");
     const entries = Object.entries(values);
 
     if (entries.length < 2) continue; // need at least two providers
@@ -97,23 +82,25 @@ function getAnalytics(db: Database) {
       const [, time] = e;
       if (time < first[1]) first = e;
     }
+    const firstMultiId = first[0];
+    const firstTime = first[1];
 
     // ensure init structures
     firstCounts[network] ||= {};
     lags[network] ||= {};
 
     // count firsts
-    firstCounts[network][first[0]] = (firstCounts[network][first[0]] || 0) + 1;
+    firstCounts[network][firstMultiId] = (firstCounts[network][firstMultiId] || 0) + 1;
 
     // accumulate lags: otherProviderTime - firstProviderTime
-    for (const e of entries) {
-      if (e[0] === first[0]) continue;
-      const lag = e[1] - first[1];
+    for (const [eMultiId, eTime] of entries) {
+      if (eMultiId === firstMultiId) continue;
+      const lag = eTime - firstTime;
 
-      lags[network][first[0]] ||= {};
+      lags[network][firstMultiId] ||= {};
 
-      lags[network][first[0]][e[0]] ||= [];
-      lags[network][first[0]][e[0]].push({ txHash, lag });
+      lags[network][firstMultiId][eMultiId] ||= [];
+      lags[network][firstMultiId][eMultiId].push(lag);
     }
   }
 
@@ -139,8 +126,8 @@ function getAnalytics(db: Database) {
       for (const [multiRpcBehind, _lagsData] of Object.entries(multiRpcNetworkLags as any)) {
         analytics[network].lags[multiRpcAhead][multiRpcBehind] = {};
 
-        const lagsData = _lagsData as LagData[];
-        const justLagsArray = lagsData.map((ld) => ld.lag);
+        const lagsData = _lagsData as number[];
+        const justLagsArray = lagsData.map((ld) => ld);
         justLagsArray.sort((a, b) => a - b);
 
         analytics[network].lags[multiRpcAhead][multiRpcBehind].default = getStats(justLagsArray);

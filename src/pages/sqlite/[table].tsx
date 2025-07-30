@@ -269,7 +269,7 @@ export default function TablePage() {
     if (["iterationIdsJsonList"].includes(key)) return ValueType.Iteration;
     if (["eventId"].includes(key)) return ValueType.Event;
 
-    if (["address", "poolAddress"].includes(key)) return ValueType._Address;
+    if (["address", "poolAddress", "pool_address"].includes(key)) return ValueType._Address;
     if (["txHash", "tx_hash"].includes(key)) return ValueType._TxHash;
     if (["blockNumber", "blockA", "blockB"].includes(key)) return ValueType._BlockNumber;
     if (["receiveTime", "receiveTimeW", "receive_time"].includes(key)) return ValueType._Timestemp;
@@ -359,6 +359,7 @@ export default function TablePage() {
         [
           "intermediateResultsJson",
           "tvResultsJsonList",
+          "buy_res_json_list",
           "extremumResJson",
           "extremumResFullJson",
           "extremumTvResJson",
