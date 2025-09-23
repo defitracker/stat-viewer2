@@ -1,6 +1,20 @@
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 
 import { CellClickedEvent, ColDef } from "ag-grid-community";
 import { AgGridReact } from "ag-grid-react";
@@ -10,7 +24,7 @@ import "ag-grid-community/styles/ag-theme-quartz.css";
 import { Input } from "@/components/ui/input";
 import { S3Connect, S3Manager } from "@/util/S3Manager";
 import S3 from "aws-sdk/clients/s3";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -24,8 +38,12 @@ import { useNavigate } from "react-router-dom";
 const formSchema = z.object({
   region: z.string().min(1, { message: "region is required" }),
   bucketName: z.string().min(1, { message: "bucketName is required" }),
-  accessKeyId: z.string().length(20, { message: "AccessKeyId must be 20 characters." }),
-  secretAccessKey: z.string().length(40, { message: "SecretAccessKey must be 40 characters." }),
+  accessKeyId: z
+    .string()
+    .length(20, { message: "AccessKeyId must be 20 characters." }),
+  secretAccessKey: z
+    .string()
+    .length(40, { message: "SecretAccessKey must be 40 characters." }),
 });
 
 function getFileSizeString(size: number | undefined) {
@@ -67,6 +85,8 @@ function S3FileSelectWrapped({
     onSubmit(permaStoreInputs);
   }
 
+  const s3 = useRef<S3Manager | undefined>(undefined);
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
     const { region, bucketName, accessKeyId, secretAccessKey } = values;
 
@@ -81,8 +101,8 @@ function S3FileSelectWrapped({
     });
 
     if (maybeS3 instanceof S3Manager) {
-      const s3 = maybeS3;
-      const files = await s3.listObjects();
+      s3.current = maybeS3;
+      const files = await s3.current.listObjects();
       setFiles(files);
       //   useMyStore.getState().addToPermaStore("s3FileSelect", {
       //     inputValues: values,
@@ -187,8 +207,12 @@ function S3FileSelectWrapped({
 
       const objectRes = await manager.getObject(e.data.filename);
       if (objectRes !== undefined) {
-        const blob = new Blob([objectRes.body as ArrayBuffer], { type: objectRes.contentType });
-        const file = new File([blob], objectRes.filename, { type: objectRes.contentType });
+        const blob = new Blob([objectRes.body as ArrayBuffer], {
+          type: objectRes.contentType,
+        });
+        const file = new File([blob], objectRes.filename, {
+          type: objectRes.contentType,
+        });
         const db = await readSqlFile(file);
         const tables = readDbTables(db);
         useSqliteStore.setState({ db, tables, filename: objectRes.filename });
@@ -199,7 +223,9 @@ function S3FileSelectWrapped({
     };
 
     const rowData: FileData[] = files.map((f) => {
-      let timeStarted = parseInt(f.Key?.replace(".sqlite", "").split("_")?.pop() ?? "0");
+      let timeStarted = parseInt(
+        f.Key?.replace(".sqlite", "").split("_")?.pop() ?? "0"
+      );
       if (isNaN(timeStarted)) timeStarted = 0;
       return {
         filename: f.Key || "{unknown}",
@@ -211,7 +237,13 @@ function S3FileSelectWrapped({
       };
     });
     const colDefs: ColDef<FileData>[] = [
-      { field: "filename", filter: true, sortable: false, flex: 1, onCellClicked: onCellClick },
+      {
+        field: "filename",
+        filter: true,
+        sortable: false,
+        flex: 1,
+        onCellClicked: onCellClick,
+      },
       {
         field: "timeStarted",
         flex: 1,
@@ -221,7 +253,8 @@ function S3FileSelectWrapped({
       {
         field: "timeUploaded",
         flex: 1,
-        valueFormatter: (v) => new Date(v.data?.timeUploaded ?? 0).toUTCString(),
+        valueFormatter: (v) =>
+          new Date(v.data?.timeUploaded ?? 0).toUTCString(),
         onCellClicked: onCellClick,
       },
       {
@@ -283,7 +316,9 @@ function S3FileSelectWrapped({
               if (!manager) return console.error("No s3 manager");
 
               const getTimeStarted = (f: S3.Object) => {
-                let timeStarted = parseInt(f.Key?.replace(".sqlite", "").split("_")?.pop() ?? "0");
+                let timeStarted = parseInt(
+                  f.Key?.replace(".sqlite", "").split("_")?.pop() ?? "0"
+                );
                 if (isNaN(timeStarted)) timeStarted = 0;
                 return timeStarted;
               };
@@ -299,21 +334,31 @@ function S3FileSelectWrapped({
                   const ta = getTimeStarted(a);
                   const tb = getTimeStarted(b);
                   return tb - ta;
-                })
-                .slice(0, 100);
+                });
+              // .slice(0, 100);
 
-              const filenamesToDelete = filesToDelete.map((f) => f.Key).filter((f) => f !== undefined);
+              const filenamesToDelete = filesToDelete
+                .map((f) => f.Key)
+                .filter((f) => f !== undefined);
 
               for (const filenameToDelete of filenamesToDelete) {
                 await manager.deleteObject(filenameToDelete);
               }
-              const newFiles = files.filter((f) => !filenamesToDelete.includes(f.Key ?? ""));
-              setFiles(newFiles);
+
+              if (s3.current) {
+                const newFiles = await s3.current.listObjects();
+                setFiles(newFiles);
+              } else {
+                const newFiles = files.filter(
+                  (f) => !filenamesToDelete.includes(f.Key ?? "")
+                );
+                setFiles(newFiles);
+              }
 
               setLoading(false);
             }}
           >
-            Delete 100 below
+            Delete ALL below
           </Button>
         ),
       },
@@ -351,22 +396,49 @@ function S3FileSelectWrapped({
     );
   };
 
-  const totalSize = files?.map((f) => f.Size ?? 0).reduce((acc, cur) => acc + cur, 0);
+  const totalSize = files
+    ?.map((f) => f.Size ?? 0)
+    .reduce((acc, cur) => acc + cur, 0);
 
   return (
     <>
       <div className="w-full">
         <Card
-          className={clsx("w-full mx-auto transition-all duration-50 ease-in-out", {
-            "max-w-sm": files === null,
-            "max-w-full": files !== null,
-          })}
+          className={clsx(
+            "w-full mx-auto transition-all duration-50 ease-in-out",
+            {
+              "max-w-sm": files === null,
+              "max-w-full": files !== null,
+            }
+          )}
         >
           <CardHeader>
             <CardTitle className="text-xl">
-              {files === null ? "Connect to S3" : `Select file from S3 (${getFileSizeString(totalSize)})`}
+              {files === null && "Connect to S3"}
+              {files !== null && (
+                <div className="flex justify-between">
+                  Select file from S3 (${getFileSizeString(totalSize)})
+                  <Button
+                    disabled={loading}
+                    onClick={async () => {
+                      if (s3.current) {
+                        setLoading(true);
+                        const files = await s3.current.listObjects();
+                        setFiles(files);
+                        setLoading(false);
+                      }
+                    }}
+                  >
+                    Reload
+                  </Button>
+                </div>
+              )}
             </CardTitle>
-            {files === null && <CardDescription>Enter your AWS credentials below</CardDescription>}
+            {files === null && (
+              <CardDescription>
+                Enter your AWS credentials below
+              </CardDescription>
+            )}
           </CardHeader>
           {renderForm()}
         </Card>

@@ -1,4 +1,8 @@
-import S3, { DeleteObjectRequest, GetObjectRequest, ListObjectsRequest } from "aws-sdk/clients/s3";
+import S3, {
+  DeleteObjectRequest,
+  GetObjectRequest,
+  ListObjectsRequest,
+} from "aws-sdk/clients/s3";
 
 type CS3Manager = {
   bucketName: string;
@@ -80,17 +84,42 @@ export class S3Manager {
   }
 
   public async listObjects() {
-    const listParams: ListObjectsRequest = {
-      Bucket: this.bucketName,
-      // Prefix: "wo_",
-    };
+    let iter = 0;
+    let marker = undefined;
+    let allData = [];
 
-    const data = await this.s3.listObjects(listParams).promise();
-    return (
-      data.Contents?.filter((d) => {
-        let check_aa = localStorage.getItem("aa") === "1";
-        return (check_aa && d.Key?.startsWith("aa_")) || d.Key?.startsWith("wo_") || d.Key?.startsWith("evinfo_");
-      }) ?? []
-    );
+    while (iter === 0 || marker !== undefined) {
+      const listParams: ListObjectsRequest = {
+        Bucket: this.bucketName,
+        // Prefix: "wo_",
+      };
+      if (marker) {
+        listParams.Marker = marker;
+      }
+
+      const data = await this.s3.listObjects(listParams).promise();
+      console.log("data", iter, data.Contents?.length);
+
+      const filteredData =
+        data.Contents?.filter((d) => {
+          let check_aa = localStorage.getItem("aa") === "1";
+          return (
+            (check_aa && d.Key?.startsWith("aa_")) ||
+            d.Key?.startsWith("wo_") ||
+            d.Key?.startsWith("evinfo_")
+          );
+        }) ?? [];
+      allData.push(...filteredData);
+
+      iter += 1;
+
+      if (data.IsTruncated && data.Contents && data.Contents.length > 0) {
+        marker = data.Contents[data.Contents.length - 1].Key;
+      } else {
+        marker = undefined;
+      }
+    }
+
+    return allData;
   }
 }
