@@ -266,7 +266,7 @@ export default function TablePage() {
   };
 
   const getValueType = (key: string) => {
-    if (["iterationIdsJsonList"].includes(key)) return ValueType.Iteration;
+    if (["iterationIdsJsonList", "solana_ex_iteration_ids_json_list"].includes(key)) return ValueType.Iteration;
     if (["eventId"].includes(key)) return ValueType.Event;
 
     if (["address", "poolAddress", "pool_address"].includes(key)) return ValueType._Address;
