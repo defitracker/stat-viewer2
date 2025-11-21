@@ -394,10 +394,10 @@ export default function TablePage() {
           </>
         );
       }
-      if (key.endsWith("JsonList")) {
+      if (key.endsWith("JsonList") || key.endsWith("json_list")) {
         return getElement(JSON.parse(value), valueType, rootCtx);
       }
-      if (key.endsWith("Json")) {
+      if (key.endsWith("Json") || key.endsWith("json")) {
         return getElement(JSON.parse(value), valueType, rootCtx, key);
       }
 
