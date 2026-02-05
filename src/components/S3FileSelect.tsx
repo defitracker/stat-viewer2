@@ -24,13 +24,14 @@ import "ag-grid-community/styles/ag-theme-quartz.css";
 import { Input } from "@/components/ui/input";
 import { S3Connect, S3Manager } from "@/util/S3Manager";
 import S3 from "aws-sdk/clients/s3";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import clsx from "clsx";
 import { useSqliteStore } from "@/util/sqliteStore";
+import { useS3CredentialsStore } from "@/util/s3CredentialsStore";
 import { readDbTables, readSqlFile } from "@/util/helper";
 import * as idb from "@/util/idb";
 import { useNavigate } from "react-router-dom";
@@ -59,16 +60,23 @@ function S3FileSelectWrapped({
   setLoading,
   files,
   setFiles,
-  applyPermaStoreValues,
-  permaStoreInputs,
 }: {
   loading: boolean;
   setLoading: React.Dispatch<React.SetStateAction<boolean>>;
   files: null | S3.ObjectList;
   setFiles: React.Dispatch<React.SetStateAction<null | S3.ObjectList>>;
-  applyPermaStoreValues: boolean;
-  permaStoreInputs: any;
 }) {
+  const {
+    credentials,
+    autoConnect,
+    rememberCreds,
+    saveCredentials,
+    clearCredentials,
+    setAutoConnect,
+    setRememberCreds,
+  } = useS3CredentialsStore();
+  const autoConnectAttempted = useRef(false);
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -81,13 +89,9 @@ function S3FileSelectWrapped({
 
   const navigate = useNavigate();
 
-  if (applyPermaStoreValues && permaStoreInputs) {
-    onSubmit(permaStoreInputs);
-  }
-
   const s3 = useRef<S3Manager | undefined>(undefined);
 
-  async function onSubmit(values: z.infer<typeof formSchema>) {
+  async function onSubmit(values: z.infer<typeof formSchema>, shouldSave = true) {
     const { region, bucketName, accessKeyId, secretAccessKey } = values;
 
     if (loading) return;
@@ -104,9 +108,14 @@ function S3FileSelectWrapped({
       s3.current = maybeS3;
       const files = await s3.current.listObjects();
       setFiles(files);
-      //   useMyStore.getState().addToPermaStore("s3FileSelect", {
-      //     inputValues: values,
-      //   });
+
+      // Save credentials on successful connection if remember is checked
+      if (shouldSave && rememberCreds) {
+        saveCredentials({
+          ...values,
+          autoConnect,
+        });
+      }
     } else {
       const e = maybeS3;
       console.error("S3Connect returned error", e);
@@ -115,11 +124,32 @@ function S3FileSelectWrapped({
     setLoading(false);
   }
 
+  // Load stored credentials on mount and auto-connect if enabled
+  useEffect(() => {
+    if (credentials) {
+      form.reset({
+        region: credentials.region,
+        bucketName: credentials.bucketName,
+        accessKeyId: credentials.accessKeyId,
+        secretAccessKey: credentials.secretAccessKey,
+      });
+
+      // Auto-connect if enabled (only once)
+      if (autoConnect && !autoConnectAttempted.current) {
+        autoConnectAttempted.current = true;
+        // Small delay to ensure form is populated
+        setTimeout(() => {
+          onSubmit(credentials, false);
+        }, 100);
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const renderForm = () => {
     if (files !== null) return;
     return (
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="">
+        <form onSubmit={form.handleSubmit((values) => onSubmit(values, true))} className="">
           <CardContent className="grid gap-2">
             <FormField
               control={form.control}
@@ -154,7 +184,7 @@ function S3FileSelectWrapped({
                 <FormItem>
                   <FormLabel>AccessKeyId</FormLabel>
                   <FormControl>
-                    <Input placeholder="******" {...field} />
+                    <Input type="password" autoComplete="off" placeholder="******" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -167,17 +197,55 @@ function S3FileSelectWrapped({
                 <FormItem>
                   <FormLabel>SecretAccessKey</FormLabel>
                   <FormControl>
-                    <Input placeholder="************" {...field} />
+                    <Input type="password" autoComplete="off" placeholder="************" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
+            <div className="flex items-center gap-4 pt-2">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={rememberCreds}
+                  onChange={(e) => setRememberCreds(e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-300"
+                />
+                Remember credentials
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autoConnect}
+                  onChange={(e) => setAutoConnect(e.target.checked)}
+                  disabled={!rememberCreds}
+                  className="w-4 h-4 rounded border-gray-300 disabled:opacity-50"
+                />
+                Auto-connect
+              </label>
+            </div>
           </CardContent>
-          <CardFooter>
-            <Button disabled={loading} className="w-full" type="submit">
+          <CardFooter className="flex gap-2">
+            <Button disabled={loading} className="flex-1" type="submit">
               Connect
             </Button>
+            {credentials && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  clearCredentials();
+                  form.reset({
+                    region: "us-east-1",
+                    bucketName: "workerresolved",
+                    accessKeyId: "",
+                    secretAccessKey: "",
+                  });
+                }}
+              >
+                Clear saved
+              </Button>
+            )}
           </CardFooter>
         </form>
       </Form>
@@ -417,7 +485,7 @@ function S3FileSelectWrapped({
               {files === null && "Connect to S3"}
               {files !== null && (
                 <div className="flex justify-between">
-                  Select file from S3 (${getFileSizeString(totalSize)})
+                  Select file from S3 ({getFileSizeString(totalSize)})
                   <Button
                     disabled={loading}
                     onClick={async () => {
@@ -452,21 +520,12 @@ export default function S3FileSelect() {
   const [loading, setLoading] = useState(false);
   const [files, setFiles] = useState<null | S3.ObjectList>(null);
 
-  //   const permaStoreData = useMyStore.getState().permaStore["s3FileSelect"];
-  //   console.log("permaStoreData", permaStoreData);
-
-  //   const applyPermaStoreValues = permaStoreData && permaStoreData.inputValues && loading === false && files === null;
-
   return (
     <S3FileSelectWrapped
       loading={loading}
       setLoading={setLoading}
       files={files}
       setFiles={setFiles}
-      applyPermaStoreValues={false}
-      permaStoreInputs={{}}
-      //   applyPermaStoreValues={applyPermaStoreValues}
-      //   permaStoreInputs={permaStoreData?.inputValues}
     />
   );
 }

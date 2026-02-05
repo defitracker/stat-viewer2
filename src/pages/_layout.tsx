@@ -8,7 +8,8 @@ import * as idb from "@/util/idb";
 import { useNavigate } from "react-router-dom";
 import { readDbTables, readSqlFile } from "@/util/helper";
 import { useSqliteStore } from "@/util/sqliteStore";
-import { X } from "lucide-react";
+import { useS3CredentialsStore } from "@/util/s3CredentialsStore";
+import { Trash2, X } from "lucide-react";
 
 interface StoredFile {
   name: string;
@@ -21,6 +22,7 @@ interface StoredFile {
 export default function IndexLayout({ children, topRight }: { children: React.ReactNode; topRight?: React.ReactNode }) {
   const [storedFiles, setStoredFiles] = useState<StoredFile[]>([]);
   const navigate = useNavigate();
+  const { credentials, autoConnect, setAutoConnect } = useS3CredentialsStore();
 
   useEffect(() => {
     fetchStoredFiles();
@@ -35,14 +37,50 @@ export default function IndexLayout({ children, topRight }: { children: React.Re
     }
   };
 
+  const clearAllFiles = async () => {
+    if (!window.confirm(`Delete all ${storedFiles.length} locally saved files?`)) {
+      return;
+    }
+    for (const file of storedFiles) {
+      await idb.deleteFile(file.name);
+    }
+    setStoredFiles([]);
+  };
+
   return (
     <SidebarProvider>
       <AppSidebar
         sublocation="file select"
         navMain={[
+          ...(credentials
+            ? [
+                {
+                  title: "S3 Settings",
+                  url: "#",
+                  items: [
+                    {
+                      title: "Auto-connect",
+                      url: "#",
+                      isToggle: true,
+                      isChecked: autoConnect,
+                      onToggle: (checked: boolean) => setAutoConnect(checked),
+                    },
+                  ],
+                },
+              ]
+            : []),
           {
             title: "Local files",
             url: "#",
+            titleAction: storedFiles.length > 0 && (
+              <div
+                className="cursor-pointer hover:bg-secondary p-0.5 rounded-sm"
+                onClick={clearAllFiles}
+                title="Delete all local files"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </div>
+            ),
             items: storedFiles
               .sort((a, b) => b.createdAt - a.createdAt)
               .map((file) => ({

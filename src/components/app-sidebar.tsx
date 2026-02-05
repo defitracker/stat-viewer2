@@ -16,16 +16,22 @@ import { Link } from "react-router-dom";
 
 import unicornImg from "@/assets/unicorn.png";
 
+type NavItem = {
+  title: string;
+  url: string;
+  onClick?: () => void;
+  rightItem?: React.ReactNode;
+  isActive?: boolean;
+  isToggle?: boolean;
+  isChecked?: boolean;
+  onToggle?: (checked: boolean) => void;
+};
+
 type NavMain = {
   title: string;
   url: string;
-  items: {
-    title: string;
-    url: string;
-    onClick?: () => void;
-    rightItem?: React.ReactNode;
-    isActive?: boolean;
-  }[];
+  titleAction?: React.ReactNode;
+  items: NavItem[];
 }[];
 
 export function AppSidebar({
@@ -59,15 +65,32 @@ export function AppSidebar({
         {/* We create a SidebarGroup for each parent. */}
         {navMain.map((item) => (
           <SidebarGroup key={item.title}>
-            <SidebarGroupLabel>{item.title}</SidebarGroupLabel>
+            <SidebarGroupLabel className="flex items-center justify-between">
+              {item.title}
+              {item.titleAction}
+            </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {item.items.map((item) => (
-                  <SidebarMenuItem key={item.title} className="flex items-center">
-                    <SidebarMenuButton asChild isActive={item.isActive} onClick={() => item.onClick?.()}>
-                      <Link to={item.url}>{item.title}</Link>
-                    </SidebarMenuButton>
-                    {item.rightItem}
+                {item.items.map((navItem) => (
+                  <SidebarMenuItem key={navItem.title} className="flex items-center">
+                    {navItem.isToggle ? (
+                      <label className="flex items-center gap-2 px-2 py-1.5 text-sm cursor-pointer w-full">
+                        <input
+                          type="checkbox"
+                          checked={navItem.isChecked}
+                          onChange={(e) => navItem.onToggle?.(e.target.checked)}
+                          className="w-4 h-4 rounded border-gray-300"
+                        />
+                        {navItem.title}
+                      </label>
+                    ) : (
+                      <>
+                        <SidebarMenuButton asChild isActive={navItem.isActive} onClick={() => navItem.onClick?.()}>
+                          <Link to={navItem.url}>{navItem.title}</Link>
+                        </SidebarMenuButton>
+                        {navItem.rightItem}
+                      </>
+                    )}
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>
