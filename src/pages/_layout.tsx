@@ -21,8 +21,18 @@ interface StoredFile {
 
 export default function IndexLayout({ children, topRight }: { children: React.ReactNode; topRight?: React.ReactNode }) {
   const [storedFiles, setStoredFiles] = useState<StoredFile[]>([]);
+  const [pinnedCounts, setPinnedCounts] = useState<Record<string, number>>({});
   const navigate = useNavigate();
   const { credentials, autoConnect, setAutoConnect } = useS3CredentialsStore();
+
+  const fetchPinnedCounts = async () => {
+    const allPinned = await idb.getAllPinnedEntries();
+    const counts: Record<string, number> = {};
+    for (const entry of allPinned) {
+      counts[entry.filename] = (counts[entry.filename] || 0) + 1;
+    }
+    setPinnedCounts(counts);
+  };
 
   useEffect(() => {
     fetchStoredFiles();
@@ -32,6 +42,7 @@ export default function IndexLayout({ children, topRight }: { children: React.Re
     try {
       const files = await idb.getAllFiles();
       setStoredFiles(files);
+      fetchPinnedCounts();
     } catch (error) {
       console.error("Error fetching files from IndexedDB:", error);
     }
@@ -43,6 +54,7 @@ export default function IndexLayout({ children, topRight }: { children: React.Re
     }
     for (const file of storedFiles) {
       await idb.deleteFile(file.name);
+      await idb.deletePinnedEntriesByFilename(file.name);
     }
     setStoredFiles([]);
   };
@@ -84,19 +96,20 @@ export default function IndexLayout({ children, topRight }: { children: React.Re
             items: storedFiles
               .sort((a, b) => b.createdAt - a.createdAt)
               .map((file) => ({
-                title: file.name,
+                title: pinnedCounts[file.name] ? `(${pinnedCounts[file.name]}) ${file.name}` : file.name,
                 url: "#",
                 onClick: async () => {
                   const db = await readSqlFile(file.data);
                   const tables = readDbTables(db);
                   useSqliteStore.setState({ db, tables, filename: file.name });
-                  navigate("/sqlite");
+                  navigate(tables.length > 0 ? `/sqlite/${tables[0]}` : "/sqlite");
                 },
                 rightItem: (
                   <div
                     className="cursor-pointer hover:bg-secondary px-1 rounded-sm"
                     onClick={async () => {
                       await idb.deleteFile(file.name);
+                      await idb.deletePinnedEntriesByFilename(file.name);
                       fetchStoredFiles();
                     }}
                   >

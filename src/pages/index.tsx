@@ -20,7 +20,7 @@ export default function Home() {
             const tables = readDbTables(db);
             useSqliteStore.setState({ db, tables, filename: file.name });
             await idb.addFile(file);
-            navigate("/sqlite");
+            navigate(tables.length > 0 ? `/sqlite/${tables[0]}` : "/sqlite");
           }}
         >
           <Button>Select file</Button>

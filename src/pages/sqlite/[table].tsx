@@ -1,5 +1,5 @@
 import { useSqliteStore } from "@/util/sqliteStore";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 
@@ -11,6 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { decodeTerminationReason, getExplorerUrl } from "@/util/helper";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import BigNumber from "bignumber.js";
+import { Star } from "lucide-react";
+import * as idb from "@/util/idb";
 
 import functionPlot, { FunctionPlotOptions } from "function-plot";
 export interface FunctionPlotProps {
@@ -181,19 +183,204 @@ export default function TablePage() {
     return res;
   }, [tableName]);
 
-  const columnDefs = res.columns.map((column) => ({
-    field: column,
-  }));
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
+  const filename = useSqliteStore((state) => state.filename);
+  const pinnedVersion = useSqliteStore((state) => state.pinnedVersion);
+
+  const loadPinnedIds = useCallback(async () => {
+    if (!filename) return;
+    const entries = await idb.getPinnedEntries(filename);
+    setPinnedIds(new Set(entries.map((e) => `${e.table}-${e.entryId}`)));
+  }, [filename]);
+
+  useEffect(() => {
+    loadPinnedIds();
+  }, [loadPinnedIds, pinnedVersion]);
+
+  const togglePin = async (table: string, entryId: string) => {
+    if (!filename) return;
+    const key = `${table}-${entryId}`;
+    if (pinnedIds.has(key)) {
+      const entries = await idb.getPinnedEntries(filename);
+      const entry = entries.find((e) => e.table === table && e.entryId === entryId);
+      if (entry?.id != null) await idb.deletePinnedEntry(entry.id);
+    } else {
+      await idb.addPinnedEntry(filename, table, entryId);
+    }
+    await loadPinnedIds();
+    const refresh = (useSqliteStore.getState() as any)._refreshPinnedEntries;
+    if (refresh) refresh();
+  };
+
+  const extraColumns = useMemo(() => {
+    const extra: { field: string; afterColumn?: string; maxWidth?: number; cellStyle?: (params: any) => any; extractFn: (row: Record<string, any>) => any }[] = [];
+    if (tableName === "Iteration" && res.columns.includes("selectedBestBuySellResJson")) {
+      extra.push({
+        field: "TV",
+        afterColumn: "tokenId",
+        maxWidth: 140,
+        extractFn: (row) => {
+          try {
+            const json = JSON.parse(row.selectedBestBuySellResJson);
+            const val = json.selectedBestTv;
+            return val != null ? parseFloat(parseFloat(val).toFixed(4)) : null;
+          } catch {
+            return null;
+          }
+        },
+      });
+      extra.push({
+        field: "profit",
+        afterColumn: "TV",
+        maxWidth: 140,
+        cellStyle: (params: any) => {
+          const val = parseFloat(params.value);
+          if (!isNaN(val) && val > 0) return { backgroundColor: "rgba(34, 197, 94, 0.07)" };
+          return null;
+        },
+        extractFn: (row) => {
+          try {
+            const json = JSON.parse(row.selectedBestBuySellResJson);
+            const val = json.selectedBestTvProfit;
+            return val != null ? parseFloat(parseFloat(val).toFixed(4)) : null;
+          } catch {
+            return null;
+          }
+        },
+      });
+    }
+    if (tableName === "Iteration" && (res.columns.includes("networkA") || res.columns.includes("networkB"))) {
+      extra.push({
+        field: "Cex",
+        afterColumn: "profit",
+        maxWidth: 120,
+        extractFn: (row) => {
+          return (row.networkA?.startsWith("CEX") || row.networkB?.startsWith("CEX")) ?? false;
+        },
+      });
+    }
+    return extra;
+  }, [tableName, res.columns]);
+
+  const columnReorders: Record<string, { field: string; afterColumn: string }[]> = {
+    Iteration: [
+      { field: "greenNetwork", afterColumn: "networkB" },
+      { field: "totalTime", afterColumn: "Cex" },
+      { field: "disallowAutomationReason", afterColumn: "totalTime" },
+    ],
+  };
+
+  const networkCellStyle = (_field: string) => (params: any) => {
+    const greenNetwork = params.data?.greenNetwork;
+    if (!greenNetwork) return null;
+    if (params.value === greenNetwork) return { backgroundColor: "rgba(34, 197, 94, 0.07)" };
+    return { backgroundColor: "rgba(239, 68, 68, 0.07)" };
+  };
+
+  const columnDefs = useMemo(() => {
+    const cols: Record<string, any>[] = [];
+    if (res.columns.includes("id")) {
+      cols.push({
+        headerName: "★",
+        field: "_pinned",
+        width: 50,
+        maxWidth: 50,
+        resizable: false,
+        filter: false,
+        sortable: false,
+        suppressMenu: true,
+        suppressHeaderMenuButton: true,
+        cellClass: "pin-cell",
+        cellRenderer: (params: any) => {
+          const id = params.data?.id;
+          if (!id) return null;
+          const isPinned = pinnedIds.has(`${tableName}-${id}`);
+          return (
+            <span
+              className={`pin-star${isPinned ? " pinned" : ""}`}
+              style={{
+                cursor: "pointer",
+                fontSize: "16px",
+                color: isPinned ? "#f97316" : undefined,
+                transition: "color 0.15s",
+              }}
+            >
+              {isPinned ? "★" : "☆"}
+            </span>
+          );
+        },
+      });
+    }
+    for (const column of res.columns) {
+      const colDef: Record<string, any> = { field: column };
+      if (tableName === "Iteration" && (column === "networkA" || column === "networkB")) {
+        colDef.cellStyle = networkCellStyle(column);
+      }
+      if (["id", "eventId", "networkA", "networkB", "greenNetwork", "totalTime"].includes(column)) {
+        colDef.maxWidth = 140;
+      }
+      cols.push(colDef);
+    }
+    const appendCols: Record<string, any>[] = [];
+    // Insert extra (derived) columns
+    for (const col of extraColumns) {
+      const colDef: Record<string, any> = { field: col.field };
+      if (col.maxWidth) colDef.maxWidth = col.maxWidth;
+      if (col.cellStyle) colDef.cellStyle = col.cellStyle;
+      if (col.afterColumn) {
+        const idx = cols.findIndex((c) => c.field === col.afterColumn);
+        if (idx !== -1) {
+          cols.splice(idx + 1, 0, colDef);
+          continue;
+        }
+      }
+      appendCols.push(colDef);
+    }
+    const result = [...cols, ...appendCols];
+    // Reorder existing columns
+    const reorders = columnReorders[tableName] || [];
+    for (const { field, afterColumn } of reorders) {
+      const fromIdx = result.findIndex((c) => c.field === field);
+      if (fromIdx === -1) continue;
+      const [removed] = result.splice(fromIdx, 1);
+      const toIdx = result.findIndex((c) => c.field === afterColumn);
+      if (toIdx !== -1) {
+        result.splice(toIdx + 1, 0, removed);
+      } else {
+        result.push(removed);
+      }
+    }
+    return result;
+  }, [res.columns, extraColumns, pinnedIds]);
   const rowsData = useMemo(() => {
     let rowsData = [];
     for (const values of res.values) {
       const rowData = bringColumnsValuesToItem(res.columns, values);
+      for (const col of extraColumns) {
+        rowData[col.field] = col.extractFn(rowData);
+      }
       rowsData.push(rowData);
     }
     return rowsData;
-  }, [res]);
+  }, [res, extraColumns]);
 
   const [selectedItems, setSelectedItems] = useState<{ table: string; item: Record<string, any> }[]>([]);
+
+  // Handle opening pinned entry from sidebar (works across tables)
+  const pinnedEntryToOpen = useSqliteStore((state) => state.pinnedEntryToOpen);
+  useEffect(() => {
+    if (!pinnedEntryToOpen || !db) return;
+    try {
+      const res = db.exec(`SELECT * FROM ${pinnedEntryToOpen.table} WHERE id = "${pinnedEntryToOpen.entryId}"`)[0];
+      if (res) {
+        const item = bringColumnsValuesToItem(res.columns, res.values[0]);
+        setSelectedItems([{ table: pinnedEntryToOpen.table, item }]);
+      }
+    } catch (e) {
+      console.error("Failed to open pinned entry", e);
+    }
+    useSqliteStore.setState({ pinnedEntryToOpen: null });
+  }, [pinnedEntryToOpen, db]);
 
   const popSelectedItem = () => {
     const before = selectedItems.length;
@@ -420,7 +607,19 @@ export default function TablePage() {
             onEscapeKeyDown={() => popSelectedItem()}
           >
             <DialogHeader>
-              <DialogTitle className="mb-2">Viewing {itemToDisplay?.table} entry</DialogTitle>
+              <DialogTitle className="mb-2 flex items-center gap-2">
+                {itemToDisplay?.item?.id && (() => {
+                  const isPinned = pinnedIds.has(`${itemToDisplay.table}-${itemToDisplay.item.id}`);
+                  return (
+                    <Star
+                      className={`h-5 w-5 cursor-pointer transition-colors duration-150 dialog-pin-star ${isPinned ? "pinned" : ""}`}
+                      fill={isPinned ? "currentColor" : "none"}
+                      onClick={() => togglePin(itemToDisplay.table, `${itemToDisplay.item.id}`)}
+                    />
+                  );
+                })()}
+                Viewing {itemToDisplay?.table} entry
+              </DialogTitle>
               <Table className="w-full">
                 <TableCaption>End of {itemToDisplay?.table} entry</TableCaption>
                 <TableBody>
@@ -446,11 +645,19 @@ export default function TablePage() {
             filter: true,
             enableRowGroup: true,
           }}
+          autoSizeStrategy={{
+            type: "fitCellContents",
+          }}
           rowGroupPanelShow={"always"}
           alwaysShowHorizontalScroll={true}
           paginationAutoPageSize={true}
           rowClass="cursor-pointer"
-          onRowClicked={(e) => {
+          onCellClicked={(e) => {
+            if (e.column.getColId() === "_pinned") {
+              const id = e.data?.id;
+              if (id) togglePin(tableName, `${id}`);
+              return;
+            }
             if (e.data) {
               pushSelectedItem({
                 table: tableName,

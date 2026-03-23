@@ -86,7 +86,7 @@ export function AppSidebar({
                     ) : (
                       <>
                         <SidebarMenuButton asChild isActive={navItem.isActive} onClick={() => navItem.onClick?.()}>
-                          <Link to={navItem.url}>{navItem.title}</Link>
+                          <Link to={navItem.url} className="truncate">{navItem.title}</Link>
                         </SidebarMenuButton>
                         {navItem.rightItem}
                       </>

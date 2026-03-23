@@ -80,3 +80,19 @@
     @apply bg-background text-foreground;
   }
 }
+
+.pin-cell {
+  cursor: pointer;
+}
+
+.pin-cell:hover .pin-star {
+  color: rgba(249, 115, 22, 0.5) !important;
+}
+
+.dialog-pin-star.pinned {
+  color: #f97316;
+}
+
+.dialog-pin-star:hover {
+  color: rgba(249, 115, 22, 0.5) !important;
+}

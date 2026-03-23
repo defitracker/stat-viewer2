@@ -285,7 +285,7 @@ function S3FileSelectWrapped({
         const tables = readDbTables(db);
         useSqliteStore.setState({ db, tables, filename: objectRes.filename });
         await idb.addFile(file);
-        navigate("/sqlite");
+        navigate(tables.length > 0 ? `/sqlite/${tables[0]}` : "/sqlite");
       }
       setLoading(false);
     };
