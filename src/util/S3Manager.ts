@@ -106,6 +106,7 @@ export class S3Manager {
           return (
             (check_aa && d.Key?.startsWith("aa_")) ||
             d.Key?.startsWith("wo_") ||
+            d.Key?.startsWith("worker") ||
             d.Key?.startsWith("evinfo_")
           );
         }) ?? [];

@@ -267,6 +267,9 @@ export default function TablePage() {
       { field: "greenNetwork", afterColumn: "networkB" },
       { field: "totalTime", afterColumn: "Cex" },
       { field: "disallowAutomationReason", afterColumn: "totalTime" },
+      { field: "tokenPriceA", afterColumn: "disallowAutomationReason" },
+      { field: "tokenPriceB", afterColumn: "tokenPriceA" },
+      { field: "eventPercentFromSelectedTv", afterColumn: "tokenPriceB" },
     ],
   };
 
@@ -459,7 +462,7 @@ export default function TablePage() {
     if (["address", "poolAddress", "pool_address"].includes(key)) return ValueType._Address;
     if (["txHash", "tx_hash"].includes(key)) return ValueType._TxHash;
     if (["blockNumber", "blockA", "blockB"].includes(key)) return ValueType._BlockNumber;
-    if (["receiveTime", "receiveTimeW", "receive_time"].includes(key)) return ValueType._Timestemp;
+    if (["receiveTime", "receiveTimeW", "receive_time", "receivedAt"].includes(key)) return ValueType._Timestemp;
 
     return ValueType.Unknown;
   };
