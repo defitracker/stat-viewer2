@@ -259,6 +259,25 @@ export default function TablePage() {
         },
       });
     }
+    if (tableName === "Event" && res.columns.includes("receiveTimeW") && res.columns.includes("receiveTime")) {
+      const afterColumn = res.columns.includes("emittedTime")
+        ? "emittedTime"
+        : res.columns.includes("processedTime")
+        ? "processedTime"
+        : "receiveTimeW";
+      extra.push({
+        field: "receiveDelta",
+        afterColumn,
+        maxWidth: 140,
+        extractFn: (row) => {
+          const w = row.receiveTimeW;
+          const r = row.receiveTime;
+          if (w == null || r == null) return null;
+          const delta = Number(w) - Number(r);
+          return isNaN(delta) ? null : delta;
+        },
+      });
+    }
     return extra;
   }, [tableName, res.columns]);
 
@@ -462,7 +481,7 @@ export default function TablePage() {
     if (["address", "poolAddress", "pool_address"].includes(key)) return ValueType._Address;
     if (["txHash", "tx_hash"].includes(key)) return ValueType._TxHash;
     if (["blockNumber", "blockA", "blockB"].includes(key)) return ValueType._BlockNumber;
-    if (["receiveTime", "receiveTimeW", "receive_time", "receivedAt"].includes(key)) return ValueType._Timestemp;
+    if (["receiveTime", "receiveTimeW", "receive_time", "receivedAt", "processedTime", "emittedTime"].includes(key)) return ValueType._Timestemp;
 
     return ValueType.Unknown;
   };
