@@ -62,6 +62,48 @@ function bringColumnsValuesToItem(columns: string[], values: any[]) {
   return res;
 }
 
+// Port of worker-rust iteration/linest.rs (f64 == JS number): exact parabola through
+// 3 points (divided differences), centered/scaled least squares for more. Lets the
+// viewer overlay the corrected fit against the stored coefficients — on files from
+// old binaries the two diverge wherever the f32 fit was broken; on new binaries they
+// coincide.
+function computeExactFit(tvs: number[], profits: number[]): { a: number; b: number; c: number; vertex: number; est: number } | undefined {
+  const n = tvs.length;
+  if (n !== profits.length || n < 3) return undefined;
+  let a: number, b: number, c: number;
+  if (n === 3) {
+    const [x0, x1, x2] = tvs;
+    const [y0, y1, y2] = profits;
+    const d01 = x1 - x0, d12 = x2 - x1, d02 = x2 - x0;
+    if (!d01 || !d12 || !d02) return undefined;
+    const s1 = (y1 - y0) / d01, s2 = (y2 - y1) / d12;
+    a = (s2 - s1) / d02;
+    b = s1 - a * (x0 + x1);
+    c = y0 - x0 * (b + a * x0);
+  } else {
+    const m = tvs.reduce((acc, v) => acc + v, 0) / n;
+    const s = tvs.reduce((acc, v) => Math.max(acc, Math.abs(v - m)), 0);
+    if (!s) return undefined;
+    let s1 = 0, s2 = 0, s3 = 0, s4 = 0, t0 = 0, t1 = 0, t2 = 0;
+    for (let i = 0; i < n; i++) {
+      const u = (tvs[i] - m) / s, u2 = u * u, y = profits[i];
+      s1 += u; s2 += u2; s3 += u2 * u; s4 += u2 * u2;
+      t0 += y; t1 += u * y; t2 += u2 * y;
+    }
+    const det = n * (s2 * s4 - s3 * s3) - s1 * (s1 * s4 - s3 * s2) + s2 * (s1 * s3 - s2 * s2);
+    if (Math.abs(det) < 1e-12) return undefined;
+    const C = (t0 * (s2 * s4 - s3 * s3) - s1 * (t1 * s4 - s3 * t2) + s2 * (t1 * s3 - s2 * t2)) / det;
+    const B = (n * (t1 * s4 - t2 * s3) - t0 * (s1 * s4 - s3 * s2) + s2 * (s1 * t2 - s2 * t1)) / det;
+    const A = (n * (s2 * t2 - s3 * t1) - s1 * (s1 * t2 - t1 * s2) + t0 * (s1 * s3 - s2 * s2)) / det;
+    a = A / (s * s);
+    b = B / s - (2 * A * m) / (s * s);
+    c = C - (B * m) / s + (A * m * m) / (s * s);
+  }
+  if (!a || !isFinite(a) || !isFinite(b) || !isFinite(c)) return undefined;
+  const vertex = -b / (2 * a);
+  return { a, b, c, vertex, est: c + b * vertex + a * vertex * vertex };
+}
+
 function Plot({ rootCtx, extrKey }: { rootCtx: Record<string, any>; extrKey: string }) {
   const { tvResultsJsonList } = rootCtx;
   const extremumRes = (() => {
@@ -76,6 +118,43 @@ function Plot({ rootCtx, extrKey }: { rootCtx: Record<string, any>; extrKey: str
 
   const extremum = BigNumber(extremumRes.extremum);
   const estimatedProfit = BigNumber(extremumRes.estimatedProfit);
+
+  const exactFit = (() => {
+    try {
+      return computeExactFit(
+        (tvs ?? []).map((v: any) => BigNumber(v).toNumber()),
+        (profits ?? []).map((v: any) => BigNumber(v).toNumber())
+      );
+    } catch (e) {
+      return undefined;
+    }
+  })();
+
+  // Worker-stored legacy-f32 fit (oldFitExtremumResJson) + its dual-verification
+  // quote — present on files from binaries with dual-fit analytics. Rendered only on
+  // the 3-pt plot (the old fit is computed over the same slice as extremumResJson).
+  const oldFit = (() => {
+    if (extrKey !== "extremumResJson") return undefined;
+    try {
+      const parsed = JSON.parse(rootCtx["oldFitExtremumResJson"]);
+      return parsed && isFinite(Number(parsed.a)) ? parsed : undefined;
+    } catch (e) {
+      return undefined;
+    }
+  })();
+  const oldFitTvRes = (() => {
+    if (extrKey !== "extremumResJson") return undefined;
+    try {
+      return JSON.parse(rootCtx["oldFitExtremumTvResJson"]);
+    } catch (e) {
+      return undefined;
+    }
+  })();
+  // stored == exact (new binary): skip the duplicate overlay
+  const exactDiffers =
+    exactFit !== undefined &&
+    (Math.abs(exactFit.a - Number(a)) > 1e-4 * Math.max(1, Math.abs(exactFit.a)) ||
+      Math.abs(exactFit.vertex - extremum.toNumber()) > 1e-4);
 
   const tvPoints = [];
   if (tvs && profits) {
@@ -106,6 +185,49 @@ function Plot({ rootCtx, extrKey }: { rootCtx: Record<string, any>; extrKey: str
 
   const data: FunctionPlotOptions["data"] = [];
   data.push({ fn });
+  if (oldFit) {
+    data.push({
+      fn: `${BigNumber(oldFit.a).toString(10)}x^2 + ${BigNumber(oldFit.b).toString(10)}x + ${BigNumber(oldFit.c).toString(10)}`,
+      color: "gray",
+    });
+    data.push({
+      fnType: "points",
+      graphType: "scatter",
+      color: "gray",
+      attr: { r: 3.3 },
+      points: [[BigNumber(oldFit.extremum).toNumber(), BigNumber(oldFit.estimatedProfit).toNumber()]],
+    });
+  }
+  if (oldFitTvRes) {
+    const oldVerifiedProfit =
+      parseFloat(oldFitTvRes.sellReturnAmount) / 10 ** 18 - oldFitTvRes.buyAmount;
+    data.push({
+      fnType: "points",
+      graphType: "scatter",
+      color: "darkolivegreen",
+      attr: { r: 3 },
+      points: [[oldFitTvRes.buyAmount, oldVerifiedProfit]],
+    });
+    if (oldVerifiedProfit > domain_y2) {
+      domain_y2 = oldVerifiedProfit;
+    }
+  }
+  if (exactDiffers && exactFit) {
+    data.push({
+      fn: `${BigNumber(exactFit.a).toString(10)}x^2 + ${BigNumber(exactFit.b).toString(10)}x + ${BigNumber(exactFit.c).toString(10)}`,
+      color: "orange",
+    });
+    data.push({
+      fnType: "points",
+      graphType: "scatter",
+      color: "orange",
+      attr: { r: 3.3 },
+      points: [[exactFit.vertex, exactFit.est]],
+    });
+    if (exactFit.est > domain_y2 && isFinite(exactFit.est)) {
+      domain_y2 = exactFit.est;
+    }
+  }
   data.push({
     fnType: "points",
     graphType: "scatter",
@@ -141,17 +263,47 @@ function Plot({ rootCtx, extrKey }: { rootCtx: Record<string, any>; extrKey: str
   }
 
   return (
-    <FunctionPlot
-      options={{
-        target: "",
-        width: 600,
-        height: 300,
-        yAxis: { domain: [domain_y1, Math.max(0.02, domain_y2 * 1.2)] },
-        xAxis: { domain: [domain_x1, domain_x2 * 1.05] },
-        grid: true,
-        data,
-      }}
-    />
+    <div>
+      <FunctionPlot
+        options={{
+          target: "",
+          width: 600,
+          height: 300,
+          yAxis: { domain: [domain_y1, Math.max(0.02, domain_y2 * 1.2)] },
+          xAxis: { domain: [domain_x1, domain_x2 * 1.05] },
+          grid: true,
+          data,
+        }}
+      />
+      <div style={{ fontSize: 11, fontFamily: "monospace", padding: "2px 8px" }}>
+        <div style={{ marginBottom: 2 }}>
+          <span style={{ color: "red" }}>● sampled tv quotes</span>
+          <span style={{ color: "purple", marginLeft: 10 }}>● stored-fit vertex (est)</span>
+          <span style={{ color: "green", marginLeft: 10 }}>● verified @ new vertex</span>
+          {oldFit && <span style={{ color: "gray", marginLeft: 10 }}>— old-f32 fit</span>}
+          {oldFitTvRes && (
+            <span style={{ color: "darkolivegreen", marginLeft: 10 }}>● verified @ old vertex</span>
+          )}
+          {exactDiffers && <span style={{ color: "darkorange", marginLeft: 10 }}>— exact-f64 fit</span>}
+        </div>
+        <span style={{ color: "steelblue" }}>
+          stored: vertex={extremum.toFixed(6)} est={estimatedProfit.toFixed(6)}
+        </span>
+        {exactFit && (
+          <span style={{ color: "darkorange", marginLeft: 12 }}>
+            {exactDiffers ? "exact-f64" : "exact-f64 (= stored)"}: vertex={exactFit.vertex.toFixed(6)} est=
+            {exactFit.est.toFixed(6)} a={exactFit.a.toExponential(3)}
+          </span>
+        )}
+        {oldFit && (
+          <span style={{ color: "gray", marginLeft: 12 }}>
+            old-f32: vertex={BigNumber(oldFit.extremum).toFixed(6)} est=
+            {BigNumber(oldFit.estimatedProfit).toFixed(6)}
+            {oldFitTvRes ? " (dual-verified)" : ""}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
