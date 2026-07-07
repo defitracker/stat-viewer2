@@ -74,6 +74,16 @@ export class S3Manager {
     }
   }
 
+  /** Short-lived signed GET url — lets the browser fetch() the object as a stream
+   *  (progress + incremental save) instead of buffering it in the aws-sdk. */
+  public getSignedUrl(key: string): string {
+    return this.s3.getSignedUrl("getObject", {
+      Bucket: this.bucketName,
+      Key: key,
+      Expires: 600,
+    });
+  }
+
   public async deleteObject(key: string) {
     const deleteParams: DeleteObjectRequest = {
       Bucket: this.bucketName,

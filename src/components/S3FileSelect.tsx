@@ -34,6 +34,14 @@ import { useSqliteStore } from "@/util/sqliteStore";
 import { useS3CredentialsStore } from "@/util/s3CredentialsStore";
 import { readDbTables, readSqlFile } from "@/util/helper";
 import * as idb from "@/util/idb";
+import {
+  clearDirHandle,
+  ensureDirPermission,
+  loadDirHandle,
+  saveDirHandle,
+  supportsDirPicker,
+} from "@/util/downloadDir";
+import { zipSync } from "fflate";
 import { useNavigate } from "react-router-dom";
 
 const formSchema = z.object({
@@ -90,6 +98,147 @@ function S3FileSelectWrapped({
   const navigate = useNavigate();
 
   const s3 = useRef<S3Manager | undefined>(undefined);
+
+  // filename -> download progress 0..1
+  const [downloads, setDownloads] = useState<Record<string, number>>({});
+  const [dirHandle, setDirHandle] = useState<any>(undefined);
+  const [selected, setSelected] = useState<{ filename: string; filesize: number }[]>([]);
+  // In-flight guard lives in a ref: state snapshots in render closures go stale.
+  const inFlight = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    loadDirHandle().then((h) => h && setDirHandle(h));
+  }, []);
+
+  function saveBlobViaAnchor(name: string, blob: Blob) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  // Shared streaming core: fetch the object as a stream, feed chunks to the sink,
+  // publish per-file progress. Returns false on failure or if already in flight.
+  async function streamFetch(
+    filename: string,
+    expectedSize: number,
+    onChunk: (c: Uint8Array) => Promise<void> | void
+  ): Promise<boolean> {
+    const manager = S3Connect.getManager();
+    if (!manager) {
+      console.error("No s3 manager");
+      return false;
+    }
+    if (inFlight.current.has(filename)) return false;
+    inFlight.current.add(filename);
+    setDownloads((d) => ({ ...d, [filename]: 0 }));
+    try {
+      const resp = await fetch(manager.getSignedUrl(filename));
+      if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
+      const total = Number(resp.headers.get("content-length")) || expectedSize || 0;
+      const reader = resp.body.getReader();
+      let loaded = 0;
+      let lastUi = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        await onChunk(value);
+        loaded += value.length;
+        const now = Date.now();
+        if (now - lastUi > 150) {
+          lastUi = now;
+          const p = total ? Math.min(loaded / total, 0.999) : 0;
+          setDownloads((d) => ({ ...d, [filename]: p }));
+        }
+      }
+      return true;
+    } catch (e) {
+      console.error("Download failed", filename, e);
+      return false;
+    } finally {
+      inFlight.current.delete(filename);
+      setDownloads((d) => {
+        const { [filename]: _done, ...rest } = d;
+        return rest;
+      });
+    }
+  }
+
+  async function downloadFile(filename: string, expectedSize: number) {
+    const shortName = filename.split("/").pop() || filename;
+    if (dirHandle && (await ensureDirPermission(dirHandle))) {
+      const fh = await dirHandle.getFileHandle(shortName, { create: true });
+      const writable = await fh.createWritable();
+      await streamFetch(filename, expectedSize, (c) => writable.write(c));
+      await writable.close();
+    } else {
+      const chunks: Uint8Array[] = [];
+      const ok = await streamFetch(filename, expectedSize, (c) => {
+        chunks.push(c);
+      });
+      if (ok) {
+        saveBlobViaAnchor(
+          shortName,
+          new Blob(chunks as BlobPart[], { type: "application/octet-stream" })
+        );
+      }
+    }
+  }
+
+  // Multi-select download: with a folder set — stream each file in (no dialogs);
+  // without — fetch all in parallel and save ONE zip (store, no compression) so the
+  // browser shows a single save prompt.
+  async function downloadSelected() {
+    const files = selected.filter((f) => !inFlight.current.has(f.filename));
+    if (!files.length) return;
+    if (dirHandle && (await ensureDirPermission(dirHandle))) {
+      // limited concurrency; folder permission already granted in this gesture
+      const queue = [...files];
+      await Promise.all(
+        Array.from({ length: Math.min(3, queue.length) }, async () => {
+          for (;;) {
+            const f = queue.shift();
+            if (!f) return;
+            const shortName = f.filename.split("/").pop() || f.filename;
+            const fh = await dirHandle.getFileHandle(shortName, { create: true });
+            const writable = await fh.createWritable();
+            await streamFetch(f.filename, f.filesize, (c) => writable.write(c));
+            await writable.close();
+          }
+        })
+      );
+    } else {
+      const results = await Promise.all(
+        files.map(async (f) => {
+          const chunks: Uint8Array[] = [];
+          const ok = await streamFetch(f.filename, f.filesize, (c) => {
+            chunks.push(c);
+          });
+          if (!ok) return null;
+          const total = chunks.reduce((a, c) => a + c.length, 0);
+          const buf = new Uint8Array(total);
+          let o = 0;
+          for (const c of chunks) {
+            buf.set(c, o);
+            o += c.length;
+          }
+          const shortName = f.filename.split("/").pop() || f.filename;
+          return [shortName, buf] as const;
+        })
+      );
+      const entries: Record<string, [Uint8Array, { level: 0 }]> = {};
+      for (const r of results) if (r) entries[r[0]] = [r[1], { level: 0 }];
+      if (!Object.keys(entries).length) return;
+      const zipped = zipSync(entries);
+      saveBlobViaAnchor(
+        `stat_files_${new Date().toISOString().replace(/[:.]/g, "-")}.zip`,
+        new Blob([zipped as BlobPart], { type: "application/zip" })
+      );
+    }
+  }
 
   async function onSubmit(values: z.infer<typeof formSchema>, shouldSave = true) {
     const { region, bucketName, accessKeyId, secretAccessKey } = values;
@@ -260,6 +409,8 @@ function S3FileSelectWrapped({
       filesize: number;
       timeStarted: number;
       timeUploaded: number;
+      download: 0;
+      downloadProgress: number | undefined;
       remove: 0;
       remove2: 0;
     };
@@ -300,11 +451,25 @@ function S3FileSelectWrapped({
         filesize: f.Size || 0,
         timeStarted: timeStarted,
         timeUploaded: f.LastModified?.getTime() ?? 0,
+        download: 0,
+        downloadProgress: downloads[f.Key || ""],
         remove: 0,
         remove2: 0,
       };
     });
     const colDefs: ColDef<FileData>[] = [
+      {
+        colId: "select",
+        headerName: "",
+        width: 48,
+        checkboxSelection: true,
+        headerCheckboxSelection: true,
+        headerCheckboxSelectionFilteredOnly: true,
+        sortable: false,
+        suppressHeaderMenuButton: true,
+        suppressHeaderFilterButton: true,
+        onCellClicked: () => {},
+      },
       {
         field: "filename",
         filter: true,
@@ -331,6 +496,46 @@ function S3FileSelectWrapped({
         width: 150,
         valueFormatter: (v) => getFileSizeString(v.data?.filesize),
         onCellClicked: onCellClick,
+      },
+      {
+        field: "download",
+        headerName: "Download",
+        width: 130,
+        suppressHeaderMenuButton: true,
+        suppressHeaderFilterButton: true,
+        sortable: false,
+        onCellClicked: () => {},
+        cellRenderer: (params: any) => {
+          const p: number | undefined = params.data.downloadProgress;
+          if (p !== undefined) {
+            return (
+              <div className="w-full h-full flex items-center">
+                <div className="w-full h-4 bg-muted rounded overflow-hidden relative">
+                  <div
+                    className="h-full bg-emerald-500 transition-all duration-150"
+                    style={{ width: `${Math.round(p * 100)}%` }}
+                  />
+                  <span className="absolute inset-0 text-[10px] leading-4 text-center font-mono">
+                    {Math.round(p * 100)}%
+                  </span>
+                </div>
+              </div>
+            );
+          }
+          return (
+            <Button
+              size={"sm"}
+              variant={"outline"}
+              onClick={(e) => {
+                // no confirmation by design (fast UX)
+                e.stopPropagation();
+                downloadFile(params.data.filename, params.data.filesize);
+              }}
+            >
+              Download
+            </Button>
+          );
+        },
       },
       {
         field: "remove",
@@ -439,6 +644,18 @@ function S3FileSelectWrapped({
         <AgGridReact
           className={`${loading ? "animate-pulse" : ""}`}
           // ref={gridRef}
+          // Stable row ids: without them every progress tick rebuilt all row DOM,
+          // eating clicks on other rows' Download buttons.
+          getRowId={(p) => p.data.filename}
+          rowSelection="multiple"
+          suppressRowClickSelection={true}
+          onSelectionChanged={(e) =>
+            setSelected(
+              e.api
+                .getSelectedRows()
+                .map((r: any) => ({ filename: r.filename, filesize: r.filesize }))
+            )
+          }
           initialState={{
             sort: {
               sortModel: [{ colId: "timeUploaded", sort: "desc" }],
@@ -484,21 +701,65 @@ function S3FileSelectWrapped({
             <CardTitle className="text-xl">
               {files === null && "Connect to S3"}
               {files !== null && (
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   Select file from S3 ({getFileSizeString(totalSize)})
-                  <Button
-                    disabled={loading}
-                    onClick={async () => {
-                      if (s3.current) {
-                        setLoading(true);
-                        const files = await s3.current.listObjects();
-                        setFiles(files);
-                        setLoading(false);
-                      }
-                    }}
-                  >
-                    Reload
-                  </Button>
+                  <div className="flex gap-2 items-center">
+                    {selected.length > 0 && (
+                      <Button
+                        variant="default"
+                        title={
+                          dirHandle
+                            ? `Streams ${selected.length} file(s) into "${dirHandle.name}" — no dialogs`
+                            : `Downloads ${selected.length} file(s) and saves ONE zip — single save prompt`
+                        }
+                        onClick={() => downloadSelected()}
+                      >
+                        ⬇ Download selected ({selected.length})
+                        {!dirHandle && " as zip"}
+                      </Button>
+                    )}
+                    {supportsDirPicker() && (
+                      <Button
+                        variant="outline"
+                        title={
+                          dirHandle
+                            ? `Downloads stream into "${dirHandle.name}" with no save dialog. Click to change, ⌘-click to clear.`
+                            : "Pick a folder once — downloads then save there with no dialog at all"
+                        }
+                        onClick={async (e) => {
+                          if (e.metaKey && dirHandle) {
+                            await clearDirHandle();
+                            setDirHandle(undefined);
+                            return;
+                          }
+                          try {
+                            const h = await (window as any).showDirectoryPicker({
+                              mode: "readwrite",
+                            });
+                            await saveDirHandle(h);
+                            setDirHandle(h);
+                          } catch (err) {
+                            /* user cancelled picker */
+                          }
+                        }}
+                      >
+                        {dirHandle ? `📁 ${dirHandle.name}` : "📁 Set download folder"}
+                      </Button>
+                    )}
+                    <Button
+                      disabled={loading}
+                      onClick={async () => {
+                        if (s3.current) {
+                          setLoading(true);
+                          const files = await s3.current.listObjects();
+                          setFiles(files);
+                          setLoading(false);
+                        }
+                      }}
+                    >
+                      Reload
+                    </Button>
+                  </div>
                 </div>
               )}
             </CardTitle>

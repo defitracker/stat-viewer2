@@ -29,6 +29,7 @@
     "bignumber.js": "^9.3.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
+    "fflate": "^0.8.3",
     "function-plot": "^1.25.1",
     "idb": "^8.0.0",
     "lucide-react": "^0.456.0",
