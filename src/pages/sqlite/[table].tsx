@@ -1,5 +1,5 @@
 import { useSqliteStore } from "@/util/sqliteStore";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 
@@ -9,33 +9,22 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Table, TableBody, TableCaption, TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { decodeTerminationReason, getExplorerUrl } from "@/util/helper";
+import { toast } from "@/util/toast";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import BigNumber from "bignumber.js";
 import { Star } from "lucide-react";
 import * as idb from "@/util/idb";
 
-import functionPlot, { FunctionPlotOptions } from "function-plot";
-export interface FunctionPlotProps {
-  options?: FunctionPlotOptions;
-}
-export const FunctionPlot: React.FC<FunctionPlotProps> = React.memo(
-  ({ options }) => {
-    const rootEl = useRef(null);
+import { FunctionPlotOptions } from "function-plot";
+import { FunctionPlot, renderIter2Value } from "@/components/Iter2Views";
 
-    useEffect(() => {
-      try {
-        functionPlot(Object.assign({}, options, { target: rootEl.current }));
-      } catch (e) {}
-    });
-
-    return <div ref={rootEl} />;
-  },
-  () => false
-);
-
+// Values of the linkable members double as table names for the click-through
+// fetch in renderValueWithType.
 enum ValueType {
   Event = "Event",
   Iteration = "Iteration",
+  Iteration2 = "Iteration2",
+  IterationGroup = "IterationGroup",
 
   _Address = "_Address",
   _TxHash = "_TxHash",
@@ -53,13 +42,20 @@ function buildExplorerFullUrl(explorerUrl: string, valueType: ValueType, value: 
 }
 
 function bringColumnsValuesToItem(columns: string[], values: any[]) {
-  const res: Record<string, any> = {};
-  for (let i = 0; i < columns.length; i++) {
-    const columnName = columns[i];
-    const value = values[i];
-    res[columnName] = value;
+  return Object.fromEntries(columns.map((c, i) => [c, values[i]])) as Record<string, any>;
+}
+
+// eventId (the cause) reads better before groupId (its consequence) in the
+// detail dialog — reorder the row list when both are present.
+function orderedEntries(item: Record<string, any>): [string, any][] {
+  const entries = Object.entries(item);
+  const gi = entries.findIndex(([k]) => k === "groupId");
+  const ei = entries.findIndex(([k]) => k === "eventId");
+  if (gi !== -1 && ei !== -1 && ei > gi) {
+    const [ev] = entries.splice(ei, 1);
+    entries.splice(gi, 0, ev);
   }
-  return res;
+  return entries;
 }
 
 // Port of worker-rust iteration/linest.rs (f64 == JS number): exact parabola through
@@ -174,10 +170,10 @@ function Plot({ rootCtx, extrKey }: { rootCtx: Record<string, any>; extrKey: str
     }
   })();
 
-  let domain_x1 = tvPoints.reduce((acc, cur) => (cur[0] < acc ? cur[0] : acc), 0);
-  let domain_x2 = tvPoints.reduce((acc, cur) => (cur[0] > acc ? cur[0] : acc), 0);
-  let domain_y1 = tvPoints.reduce((acc, cur) => (cur[1] < acc ? cur[1] : acc), 0);
-  let domain_y2 = tvPoints.reduce((acc, cur) => (cur[1] > acc ? cur[1] : acc), 0);
+  let domain_x1 = Math.min(0, ...tvPoints.map((p) => p[0]));
+  let domain_x2 = Math.max(0, ...tvPoints.map((p) => p[0]));
+  let domain_y1 = Math.min(0, ...tvPoints.map((p) => p[1]));
+  let domain_y2 = Math.max(0, ...tvPoints.map((p) => p[1]));
 
   if (estimatedProfit.toNumber() > domain_y2) {
     domain_y2 = estimatedProfit.toNumber();
@@ -411,6 +407,111 @@ export default function TablePage() {
         },
       });
     }
+    if (tableName === "Iteration2" && res.columns.includes("selJson")) {
+      const sel = (row: Record<string, any>) => {
+        try {
+          return JSON.parse(row.selJson);
+        } catch {
+          return undefined;
+        }
+      };
+      extra.push({
+        field: "TV",
+        afterColumn: "tokenId",
+        maxWidth: 140,
+        extractFn: (row) => {
+          const val = sel(row)?.tv;
+          return val != null ? parseFloat(parseFloat(val).toFixed(4)) : null;
+        },
+      });
+      extra.push({
+        field: "profit",
+        afterColumn: "TV",
+        maxWidth: 140,
+        cellStyle: (params: any) => {
+          const val = parseFloat(params.value);
+          if (!isNaN(val) && val > 0) return { backgroundColor: "rgba(34, 197, 94, 0.07)" };
+          return null;
+        },
+        extractFn: (row) => {
+          const val = sel(row)?.p;
+          return val != null ? parseFloat(parseFloat(val).toFixed(4)) : null;
+        },
+      });
+    }
+    if (tableName === "Iteration2") {
+      extra.push({
+        field: "green",
+        afterColumn: "greenNetwork",
+        maxWidth: 140,
+        extractFn: (row) =>
+          row.greenNetwork === "a" ? row.networkA : row.greenNetwork === "b" ? row.networkB : null,
+      });
+      extra.push({
+        field: "Cex",
+        afterColumn: "profit",
+        maxWidth: 120,
+        // Derived, never stored: a CEX leg is a network starting with "CEX".
+        extractFn: (row) =>
+          (row.networkA?.startsWith("CEX") || row.networkB?.startsWith("CEX")) ?? false,
+      });
+      extra.push({
+        field: "manual",
+        afterColumn: "Cex",
+        maxWidth: 120,
+        extractFn: (row) => (row.isManual != null ? !!row.isManual : null),
+      });
+      extra.push({
+        field: "sent",
+        afterColumn: "manual",
+        maxWidth: 110,
+        cellStyle: (params: any) =>
+          params.value ? { backgroundColor: "rgba(34, 197, 94, 0.07)" } : null,
+        extractFn: (row) => {
+          try {
+            return JSON.parse(row.gatesJson)?.sent != null;
+          } catch {
+            return false;
+          }
+        },
+      });
+    }
+    if (tableName === "IterationGroup") {
+      extra.push({
+        field: "pairs",
+        afterColumn: "tokenId",
+        maxWidth: 110,
+        extractFn: (row) => {
+          try {
+            return JSON.parse(row.pairsJson)?.length ?? null;
+          } catch {
+            return null;
+          }
+        },
+      });
+      if (res.columns.includes("isManual")) {
+        extra.push({
+          field: "manual",
+          afterColumn: "pairs",
+          maxWidth: 120,
+          extractFn: (row) => !!row.isManual,
+        });
+      }
+    }
+    if (tableName === "Event" && res.columns.includes("groupIdsJsonList")) {
+      extra.push({
+        field: "groups",
+        afterColumn: "dependantTokensJsonList",
+        maxWidth: 110,
+        extractFn: (row) => {
+          try {
+            return JSON.parse(row.groupIdsJsonList)?.length ?? null;
+          } catch {
+            return null;
+          }
+        },
+      });
+    }
     if (tableName === "Event" && res.columns.includes("receiveTimeW") && res.columns.includes("receiveTime")) {
       const afterColumn = res.columns.includes("emittedTime")
         ? "emittedTime"
@@ -442,12 +543,36 @@ export default function TablePage() {
       { field: "tokenPriceB", afterColumn: "tokenPriceA" },
       { field: "eventPercentFromSelectedTv", afterColumn: "tokenPriceB" },
     ],
+    Iteration2: [
+      // event before group — the event is the cause, the group its consequence
+      { field: "eventId", afterColumn: "id" },
+      { field: "groupId", afterColumn: "eventId" },
+      { field: "networkA", afterColumn: "profit" },
+      { field: "networkB", afterColumn: "networkA" },
+      { field: "greenNetwork", afterColumn: "networkB" },
+      // keep the decoded full-name column next to the a/b side code
+      { field: "green", afterColumn: "greenNetwork" },
+      { field: "totalTime", afterColumn: "sent" },
+      { field: "terminationReason", afterColumn: "totalTime" },
+      { field: "tokenPriceA", afterColumn: "terminationReason" },
+      { field: "tokenPriceB", afterColumn: "tokenPriceA" },
+    ],
+    IterationGroup: [
+      { field: "totalTime", afterColumn: "rounds" },
+      { field: "terminationReason", afterColumn: "totalTime" },
+    ],
   };
 
-  const networkCellStyle = (_field: string) => (params: any) => {
+  // Old Iteration stores the green network's full name; Iteration2 stores the
+  // side code ("a"/"b").
+  const networkCellStyle = (field: string) => (params: any) => {
     const greenNetwork = params.data?.greenNetwork;
     if (!greenNetwork) return null;
-    if (params.value === greenNetwork) return { backgroundColor: "rgba(34, 197, 94, 0.07)" };
+    const isGreen =
+      params.value === greenNetwork ||
+      (greenNetwork === "a" && field === "networkA") ||
+      (greenNetwork === "b" && field === "networkB");
+    if (isGreen) return { backgroundColor: "rgba(34, 197, 94, 0.07)" };
     return { backgroundColor: "rgba(239, 68, 68, 0.07)" };
   };
 
@@ -487,7 +612,7 @@ export default function TablePage() {
     }
     for (const column of res.columns) {
       const colDef: Record<string, any> = { field: column };
-      if (tableName === "Iteration" && (column === "networkA" || column === "networkB")) {
+      if (["Iteration", "Iteration2"].includes(tableName) && (column === "networkA" || column === "networkB")) {
         colDef.cellStyle = networkCellStyle(column);
       }
       if (["id", "eventId", "networkA", "networkB", "greenNetwork", "totalTime"].includes(column)) {
@@ -544,13 +669,17 @@ export default function TablePage() {
   const pinnedEntryToOpen = useSqliteStore((state) => state.pinnedEntryToOpen);
   useEffect(() => {
     if (!pinnedEntryToOpen || !db) return;
+    const { table, entryId } = pinnedEntryToOpen;
     try {
-      const res = db.exec(`SELECT * FROM ${pinnedEntryToOpen.table} WHERE id = "${pinnedEntryToOpen.entryId}"`)[0];
-      if (res) {
+      const res = db.exec(`SELECT * FROM ${table} WHERE id = "${entryId}"`)[0];
+      if (res?.values?.[0]) {
         const item = bringColumnsValuesToItem(res.columns, res.values[0]);
-        setSelectedItems([{ table: pinnedEntryToOpen.table, item }]);
+        setSelectedItems([{ table, item }]);
+      } else {
+        toast(`Pinned ${table} “${entryId}” isn’t in this file`, "warn");
       }
     } catch (e) {
+      toast(`Can’t open pinned ${table}: no ${table} table in this file`, "error");
       console.error("Failed to open pinned entry", e);
     }
     useSqliteStore.setState({ pinnedEntryToOpen: null });
@@ -570,9 +699,28 @@ export default function TablePage() {
     console.log("Pushing selected, was", before);
   };
 
+  // Open a row of any table in the detail dialog. Surfaces a visible toast
+  // when the target is absent (dangling link across a rotated file) or its
+  // table doesn't exist (older-worker file) instead of failing silently.
+  const openEntry = (table: string, id: string) => {
+    try {
+      const res = db.exec(`SELECT * FROM ${table} WHERE id = "${id}"`)[0];
+      if (!res?.values?.[0]) {
+        toast(`No ${table} “${id}” in this file`, "warn");
+        return;
+      }
+      pushSelectedItem({ table, item: bringColumnsValuesToItem(res.columns, res.values[0]) });
+    } catch (e) {
+      toast(`Can’t open ${table} “${id}”: no ${table} table in this file`, "error");
+      console.error(`Failed to open ${table} entry`, id, e);
+    }
+  };
+
   const itemToDisplay = selectedItems.length > 0 ? selectedItems[selectedItems.length - 1] : null;
 
   const getElement = (value: any, valueType: ValueType | null, rootCtx: Record<string, any>, key?: string) => {
+    // typeof null === "object" — keep nulls away from Object.entries
+    if (value === null || value === undefined) return `${value}`;
     if (Array.isArray(value)) return getArrayElement(value, valueType, rootCtx);
     if (typeof value === "object") return getObjectElement(value, null, rootCtx, key);
     if (valueType === null) return `${value}`;
@@ -629,11 +777,12 @@ export default function TablePage() {
   const getValueType = (key: string) => {
     if (["iterationIdsJsonList", "solana_ex_iteration_ids_json_list", "extendedRangeFromIterId"].includes(key)) return ValueType.Iteration;
     if (["eventId"].includes(key)) return ValueType.Event;
+    if (["groupIdsJsonList", "groupId"].includes(key)) return ValueType.IterationGroup;
 
     if (["address", "poolAddress", "pool_address"].includes(key)) return ValueType._Address;
     if (["txHash", "tx_hash"].includes(key)) return ValueType._TxHash;
-    if (["blockNumber", "blockA", "blockB"].includes(key)) return ValueType._BlockNumber;
-    if (["receiveTime", "receiveTimeW", "receive_time", "receivedAt", "processedTime", "emittedTime"].includes(key)) return ValueType._Timestemp;
+    if (["blockNumber", "blockA", "blockB", "blocksA", "blocksB"].includes(key)) return ValueType._BlockNumber;
+    if (["receiveTime", "receiveTimeW", "receive_time", "receivedAt", "processedTime", "emittedTime", "sentAtMs", "atMs", "started"].includes(key)) return ValueType._Timestemp;
 
     return ValueType.Unknown;
   };
@@ -644,9 +793,13 @@ export default function TablePage() {
     }
 
     if (type === ValueType._Timestemp) {
+      // keep the readable UTC string but expose milliseconds (…:01.808 GMT)
+      const d = new Date(value);
+      const ms = String(d.getUTCMilliseconds()).padStart(3, "0");
+      const withMs = isNaN(d.getTime()) ? `${value}` : d.toUTCString().replace(" GMT", `.${ms} GMT`);
       return (
         <Badge variant={"outline"}>
-          {new Date(value).toUTCString()} | {value}
+          {withMs} | {value}
         </Badge>
       );
     }
@@ -656,20 +809,12 @@ export default function TablePage() {
       return <Badge variant={"outline"}>{valueAdj}</Badge>;
     }
 
-    if ([ValueType.Event, ValueType.Iteration].includes(type)) {
+    if ([ValueType.Event, ValueType.Iteration, ValueType.Iteration2, ValueType.IterationGroup].includes(type)) {
       return (
         <Badge
           variant={"outline"}
           className="cursor-pointer bg-blue-300/10 hover:bg-blue-500/30"
-          onClick={() => {
-            const tableToFetch = type;
-            const res = db.exec(`SELECT * FROM ${tableToFetch} WHERE id = "${value}"`)[0];
-            const item = bringColumnsValuesToItem(res.columns, res.values[0]);
-            pushSelectedItem({
-              table: tableToFetch,
-              item: item,
-            });
-          }}
+          onClick={() => openEntry(type, `${value}`)}
         >
           {value}
         </Badge>
@@ -689,11 +834,11 @@ export default function TablePage() {
         let values = typeof value === "string" ? value.split(",") : [value];
         return (
           <div className="flex gap-1">
-            {values.map((value) => {
+            {values.map((value, i) => {
               const explorerUrl = getExplorerUrl(network);
               const fullUrl = buildExplorerFullUrl(explorerUrl, type, value);
               return (
-                <a href={fullUrl} target="_blank">
+                <a key={i} href={fullUrl} target="_blank">
                   <Badge variant={"outline"} className="cursor-pointer bg-green-300/10 hover:bg-green-500/30">
                     {value}
                   </Badge>
@@ -713,9 +858,13 @@ export default function TablePage() {
     return <Badge variant={"outline"}>{value}</Badge>;
   };
 
-  const getTableItemElement = (key: string, value: any, rootCtx: Record<string, any>) => {
+  const getTableItemElement = (table: string, key: string, value: any, rootCtx: Record<string, any>) => {
     const valueType = getValueType(key);
     try {
+      // iteration2-era tables get decoded/custom views; undefined falls
+      // through to the generic rendering below.
+      const custom = renderIter2Value({ table, key, value, rootCtx, db, openEntry, getElement });
+      if (custom !== undefined) return custom;
       if (
         [
           "intermediateResultsJson",
@@ -767,6 +916,7 @@ export default function TablePage() {
       if (stringValue.length === 0) return ``;
       return renderValueWithType(value, valueType, rootCtx, key);
     } catch (e) {
+      console.debug("getTableItemElement fell back to raw value for", key, e);
       return value;
     }
   };
@@ -798,11 +948,11 @@ export default function TablePage() {
                 <TableCaption>End of {itemToDisplay?.table} entry</TableCaption>
                 <TableBody>
                   {itemToDisplay &&
-                    Object.entries(itemToDisplay.item).map(([key, value]) => (
+                    orderedEntries(itemToDisplay.item).map(([key, value]) => (
                       <TableRow key={key}>
                         <TableCell className="font-medium">{key}</TableCell>
                         <TableCell className="break-all">
-                          {getTableItemElement(key, value, itemToDisplay.item)}
+                          {getTableItemElement(itemToDisplay.table, key, value, itemToDisplay.item)}
                         </TableCell>
                       </TableRow>
                     ))}

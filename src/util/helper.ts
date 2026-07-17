@@ -56,22 +56,44 @@ export function getExplorerUrl(network: string) {
   return "https://blockscan.com";
 }
 
+const TERMINATION_EXACT: Record<string, string> = {
+  ntt: "No tracking tokens in pool",
+  bale: "Balancer id err",
+  bexe: "Balancer BEX id err",
+  bure: "Balancer BURR id err",
+  uv4e: "Uni v4 id err",
+  unk: "Unknown pool",
+  id: "Iterations disabled",
+  // iteration2-era codes
+  "!active": "Token not active",
+  hidden: "Token hidden",
+  debounce: "Debounced (too soon after previous event)",
+  no_token_name: "CEX trade carried no token name",
+  no_cex_config: "No cex section in config",
+  no_cex_nd_token: "Token has no network data for this CEX",
+  cex_id: "CEX iterations disabled (cex.itersEnabled)",
+  cex_ev_d: "CEX events disabled (cex.eventsEnabled)",
+};
+
+// Codes that arrive with a suffix, e.g. "NNDB TOKEN Ethereum".
+const TERMINATION_PREFIX: [string, string][] = [
+  ["group_ladder_failed", "Group buy ladder failed"],
+  ["ladder_failed", "Buy ladder failed"],
+  ["network_disabled", "Network disabled (region gating)"],
+  ["no quote transport", "No LA/Jupiter/CEX transport for network"],
+  ["no_la_na", "No LA config for network"],
+  ["no_cex_nd", "Token has no network data for this CEX"],
+  ["NNDB", "No token network data for counterparty"],
+  ["NSRCB", "No src token for counterparty"],
+  ["HNP", "Token has no pools on counterparty"],
+  ["No TVs", "No tracking values for pair"],
+  ["id ", "Iterations disabled for network"],
+];
+
 export function decodeTerminationReason(reason: string) {
-  switch (reason) {
-    case "ntt":
-      return `${reason}: No tracking tokens in pool`;
-    case "bale":
-      return `${reason}: Balancer id err`;
-    case "bexe":
-      return `${reason}: Balancer BEX id err`;
-    case "bure":
-      return `${reason}: Balancer BURR id err`;
-    case "uv4e":
-      return `${reason}: Uni v4 id err`;
-    case "unk":
-      return `${reason}: Unknown pool`;
-    case "id":
-      return `${reason}: Iterations disabled`;
+  if (TERMINATION_EXACT[reason]) return `${reason}: ${TERMINATION_EXACT[reason]}`;
+  for (const [prefix, desc] of TERMINATION_PREFIX) {
+    if (reason?.startsWith?.(prefix)) return `${reason} — ${desc}`;
   }
   return reason;
 }

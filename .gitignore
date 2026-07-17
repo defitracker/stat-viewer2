@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+test/.build
+# local test data — never commit worker analytics files
+test/fixtures

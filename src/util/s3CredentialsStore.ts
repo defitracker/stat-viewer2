@@ -60,7 +60,6 @@ interface S3CredentialsState {
   rememberCreds: boolean;
 
   // Actions
-  loadCredentials: () => StoredCredentials | null;
   saveCredentials: (creds: StoredCredentials) => void;
   clearCredentials: () => void;
   setAutoConnect: (value: boolean) => void;
@@ -75,12 +74,6 @@ export const useS3CredentialsStore = create<S3CredentialsState>()((set, get) => 
     credentials: initial,
     autoConnect: initial?.autoConnect ?? false,
     rememberCreds: initial !== null,
-
-    loadCredentials: () => {
-      const creds = loadFromLocalStorage();
-      set({ credentials: creds, autoConnect: creds?.autoConnect ?? false, rememberCreds: creds !== null });
-      return creds;
-    },
 
     saveCredentials: (creds: StoredCredentials) => {
       saveToLocalStorage(creds);

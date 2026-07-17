@@ -1,5 +1,5 @@
 // src/components/FileUploader.tsx
-import React, { useCallback, useState } from "react";
+import React, { useCallback } from "react";
 import { useDropzone, FileRejection } from "react-dropzone";
 
 // Define the accepted file types
@@ -13,25 +13,13 @@ interface FileUploaderProps {
 }
 
 const FileUploader: React.FC<FileUploaderProps> = ({ onFilesAccepted, children }) => {
-  const [_, setErrorMessages] = useState<string[]>([]);
-
   const onDrop = useCallback(
     (acceptedFiles: File[], fileRejections: FileRejection[]) => {
-      // Clear previous errors
-      setErrorMessages([]);
-
-      // Handle accepted files
       if (acceptedFiles.length > 0) {
         onFilesAccepted(acceptedFiles);
       }
-
-      // Handle rejected files
-      if (fileRejections.length > 0) {
-        const errors = fileRejections.map((rejection) => {
-          const { file, errors } = rejection;
-          return `${file.name} - ${errors.map((e) => e.message).join(", ")}`;
-        });
-        setErrorMessages(errors);
+      for (const { file, errors } of fileRejections) {
+        console.error(`Rejected ${file.name}: ${errors.map((e) => e.message).join(", ")}`);
       }
     },
     [onFilesAccepted]
@@ -40,7 +28,6 @@ const FileUploader: React.FC<FileUploaderProps> = ({ onFilesAccepted, children }
   const { getRootProps, getInputProps } = useDropzone({
     onDrop,
     accept: ACCEPTED_FILE_TYPES,
-    // multiple: true,
   });
 
   return (

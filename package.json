@@ -10,13 +10,15 @@
     "dev": "vite --port 4444",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:iter2": "esbuild test/iter2.smoke.tsx --bundle --platform=node --format=cjs --outfile=test/.build/iter2.smoke.cjs --alias:@=./src --alias:react-json-view=./test/stub-react-json-view.tsx --external:sql.js --jsx=automatic --log-level=warning && node test/.build/iter2.smoke.cjs",
+    "test:browser": "node test/browser.smoke.mjs",
+    "test": "npm run test:iter2 && npm run test:browser"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
     "@radix-ui/react-accordion": "^1.2.1",
     "@radix-ui/react-dialog": "^1.1.2",
-    "@radix-ui/react-dropdown-menu": "^2.1.2",
     "@radix-ui/react-label": "^2.1.0",
     "@radix-ui/react-separator": "^1.1.0",
     "@radix-ui/react-slot": "^1.1.0",
@@ -38,7 +40,6 @@
     "react-dropzone": "^14.3.5",
     "react-hook-form": "^7.53.2",
     "react-json-view": "^1.21.3",
-    "react-router": "^6.28.0",
     "react-router-dom": "^6.28.0",
     "sql.js": "^1.12.0",
     "tailwind-merge": "^2.5.4",
@@ -60,6 +61,7 @@
     "gh-pages": "^6.2.0",
     "globals": "^15.11.0",
     "postcss": "^8.4.49",
+    "puppeteer-core": "^25.3.0",
     "tailwindcss": "^3.4.14",
     "typescript": "~5.6.2",
     "typescript-eslint": "^8.11.0",

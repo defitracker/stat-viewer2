@@ -80,21 +80,6 @@ export async function deleteFile(name: string): Promise<void> {
   await db.delete("files", name);
 }
 
-// Get a single file by name
-export async function getFile(name: string): Promise<
-  | {
-      name: string;
-      size: number;
-      type: string;
-      data: Blob;
-      createdAt: number;
-    }
-  | undefined
-> {
-  const db = await initDB();
-  return db.get("files", name);
-}
-
 // Pinned entries
 
 export interface PinnedEntry {

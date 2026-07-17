@@ -63,17 +63,15 @@ function getFileSizeString(size: number | undefined) {
   return `${size} B`;
 }
 
-function S3FileSelectWrapped({
-  loading,
-  setLoading,
-  files,
-  setFiles,
-}: {
-  loading: boolean;
-  setLoading: React.Dispatch<React.SetStateAction<boolean>>;
-  files: null | S3.ObjectList;
-  setFiles: React.Dispatch<React.SetStateAction<null | S3.ObjectList>>;
-}) {
+// Files are named <name>_<startTimestampMs>.sqlite — 0 when unparsable.
+function getTimeStarted(key: string | undefined) {
+  const t = parseInt(key?.replace(".sqlite", "").split("_")?.pop() ?? "0");
+  return isNaN(t) ? 0 : t;
+}
+
+export default function S3FileSelect() {
+  const [loading, setLoading] = useState(false);
+  const [files, setFiles] = useState<null | S3.ObjectList>(null);
   const {
     credentials,
     autoConnect,
@@ -422,7 +420,6 @@ function S3FileSelectWrapped({
       if (!manager) return console.error("No s3 manager");
 
       setLoading(true);
-      //   useMyStore.getState().setFileName(e.data.filename);
 
       const objectRes = await manager.getObject(e.data.filename);
       if (objectRes !== undefined) {
@@ -441,22 +438,16 @@ function S3FileSelectWrapped({
       setLoading(false);
     };
 
-    const rowData: FileData[] = files.map((f) => {
-      let timeStarted = parseInt(
-        f.Key?.replace(".sqlite", "").split("_")?.pop() ?? "0"
-      );
-      if (isNaN(timeStarted)) timeStarted = 0;
-      return {
-        filename: f.Key || "{unknown}",
-        filesize: f.Size || 0,
-        timeStarted: timeStarted,
-        timeUploaded: f.LastModified?.getTime() ?? 0,
-        download: 0,
-        downloadProgress: downloads[f.Key || ""],
-        remove: 0,
-        remove2: 0,
-      };
-    });
+    const rowData: FileData[] = files.map((f) => ({
+      filename: f.Key || "{unknown}",
+      filesize: f.Size || 0,
+      timeStarted: getTimeStarted(f.Key),
+      timeUploaded: f.LastModified?.getTime() ?? 0,
+      download: 0,
+      downloadProgress: downloads[f.Key || ""],
+      remove: 0,
+      remove2: 0,
+    }));
     const colDefs: ColDef<FileData>[] = [
       {
         colId: "select",
@@ -588,27 +579,11 @@ function S3FileSelectWrapped({
               const manager = S3Connect.getManager();
               if (!manager) return console.error("No s3 manager");
 
-              const getTimeStarted = (f: S3.Object) => {
-                let timeStarted = parseInt(
-                  f.Key?.replace(".sqlite", "").split("_")?.pop() ?? "0"
-                );
-                if (isNaN(timeStarted)) timeStarted = 0;
-                return timeStarted;
-              };
-
               setLoading(true);
 
               const filesToDelete = files
-                .filter((f) => {
-                  const timeStarted = getTimeStarted(f);
-                  return timeStarted < thisFileTimeStarted;
-                })
-                .sort((a, b) => {
-                  const ta = getTimeStarted(a);
-                  const tb = getTimeStarted(b);
-                  return tb - ta;
-                });
-              // .slice(0, 100);
+                .filter((f) => getTimeStarted(f.Key) < thisFileTimeStarted)
+                .sort((a, b) => getTimeStarted(b.Key) - getTimeStarted(a.Key));
 
               const filenamesToDelete = filesToDelete
                 .map((f) => f.Key)
@@ -637,13 +612,10 @@ function S3FileSelectWrapped({
       },
     ];
 
-    // const gridRef = useRef<AgGridReact | null>(null);
-
     return (
       <div className="ag-theme-quartz min-h-[100vh] flex-1 rounded-xl bg-muted/50 md:min-h-min">
         <AgGridReact
           className={`${loading ? "animate-pulse" : ""}`}
-          // ref={gridRef}
           // Stable row ids: without them every progress tick rebuilt all row DOM,
           // eating clicks on other rows' Download buttons.
           getRowId={(p) => p.data.filename}
@@ -662,18 +634,13 @@ function S3FileSelectWrapped({
             },
           }}
           onFirstDataRendered={(e) => {
-            // e.api.autoSizeAllColumns();
             for (let i = 0; i < 15; i += 3) {
-              setTimeout(() => {
-                // e.api.autoSizeAllColumns();
-                e.api.sizeColumnsToFit();
-              }, 100 * i);
+              setTimeout(() => e.api.sizeColumnsToFit(), 100 * i);
             }
           }}
           rowData={rowData}
           columnDefs={colDefs}
           pagination={true}
-          // suppressPaginationPanel={true}
           alwaysShowHorizontalScroll={true}
           multiSortKey={"ctrl"}
         />
@@ -774,19 +741,5 @@ function S3FileSelectWrapped({
       </div>
       {renderFiles()}
     </>
-  );
-}
-
-export default function S3FileSelect() {
-  const [loading, setLoading] = useState(false);
-  const [files, setFiles] = useState<null | S3.ObjectList>(null);
-
-  return (
-    <S3FileSelectWrapped
-      loading={loading}
-      setLoading={setLoading}
-      files={files}
-      setFiles={setFiles}
-    />
   );
 }

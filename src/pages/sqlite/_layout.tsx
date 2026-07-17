@@ -12,8 +12,7 @@ import { Button } from "@/components/ui/button";
 import { useSqliteStore } from "@/util/sqliteStore";
 import { Download, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useLocation } from "react-router";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import * as idb from "@/util/idb";
 import type { PinnedEntry } from "@/util/idb";
@@ -97,11 +96,17 @@ export default function SQLiteLayout({ children }: { children: React.ReactNode }
                     let displayName = `${entry.table}-${entry.entryId.slice(0, 4)}`;
                     if (db) {
                       try {
-                        if (entry.table === "Iteration") {
-                          const res = db.exec(`SELECT tokenId, networkA, networkB FROM Iteration WHERE id = "${entry.entryId}"`)[0];
+                        if (entry.table === "Iteration" || entry.table === "Iteration2") {
+                          const res = db.exec(`SELECT tokenId, networkA, networkB FROM ${entry.table} WHERE id = "${entry.entryId}"`)[0];
                           if (res?.values?.[0]) {
                             const [tokenId, netA, netB] = res.values[0] as string[];
                             displayName = `It-${tokenId}-${(netA || "").slice(0, 3)}-${(netB || "").slice(0, 3)}-${entry.entryId.slice(0, 4)}`;
+                          }
+                        } else if (entry.table === "IterationGroup") {
+                          const res = db.exec(`SELECT tokenId, eventNetwork FROM IterationGroup WHERE id = "${entry.entryId}"`)[0];
+                          if (res?.values?.[0]) {
+                            const [tokenId, net] = res.values[0] as string[];
+                            displayName = `Grp-${tokenId}-${(net || "").slice(0, 3)}-${entry.entryId.slice(0, 4)}`;
                           }
                         } else if (entry.table === "Event") {
                           const res = db.exec(`SELECT network, dependantTokensJsonList FROM Event WHERE id = "${entry.entryId}"`)[0];

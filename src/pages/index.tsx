@@ -28,7 +28,6 @@ export default function Home() {
       }
     >
       <>
-        {/*  */}
         <S3FileSelect />
       </>
     </IndexLayout>

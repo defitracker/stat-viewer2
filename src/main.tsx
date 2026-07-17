@@ -2,13 +2,12 @@ import "./init"
 
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, HashRouter, MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import "./index.css";
 import App from "./App.tsx";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    {/* <HashRouter basename="/stat-viewer2/"> */}
     <MemoryRouter basename="/">
       <App />
     </MemoryRouter>

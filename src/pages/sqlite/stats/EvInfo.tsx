@@ -30,7 +30,6 @@ export function computeStats() {
         displayDataTypes={false}
         quotesOnKeys={false}
       />
-      {/* <div><pre>{JSON.stringify(analytics, null, 2)}</pre></div> */}
     </>
   );
 }
@@ -104,9 +103,6 @@ function getAnalytics(db: Database) {
     }
   }
 
-  //   console.log("lagSums", lagSums);
-  //   console.log("lags", lags);
-
   // 4) build final analytics with averages
   const analytics: {
     [network: string]: any;
@@ -126,9 +122,7 @@ function getAnalytics(db: Database) {
       for (const [multiRpcBehind, _lagsData] of Object.entries(multiRpcNetworkLags as any)) {
         analytics[network].lags[multiRpcAhead][multiRpcBehind] = {};
 
-        const lagsData = _lagsData as number[];
-        const justLagsArray = lagsData.map((ld) => ld);
-        justLagsArray.sort((a, b) => a - b);
+        const justLagsArray = [...(_lagsData as number[])].sort((a, b) => a - b);
 
         analytics[network].lags[multiRpcAhead][multiRpcBehind].default = getStats(justLagsArray);
         analytics[network].lags[multiRpcAhead][multiRpcBehind].noOutliers = getStats(filterOutOutliers(justLagsArray));
