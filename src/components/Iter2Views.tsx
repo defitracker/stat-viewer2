@@ -575,6 +575,14 @@ export function renderIter2Value(opts: {
       if (parsed === undefined) return undefined;
       return <RawJson name="routes" v={deepResolveErrs(parsed, errs)} collapsed={2} />;
     }
+    // Emitted WIR (manual iters, when analytics.saveWIRforManualIters) — the
+    // exact payload the executor got. Rendered as a collapsible JSON tree,
+    // same as the raw tvResJson accordion.
+    if (key === "wirJson") {
+      const parsed = parseJson(value);
+      if (parsed === undefined) return undefined;
+      return <RawAccordion label="raw wirJson" value={parsed} />;
+    }
   }
 
   if (table === "IterationGroup") {
