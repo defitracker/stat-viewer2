@@ -350,7 +350,7 @@ export function PairsView({
   db: Database;
   openEntry: (table: string, id: string) => void;
 }) {
-  const heads = ["iteration", "networkB", "tvStage", "assignedTvs", "lo", "hi", "tvUpdatesOff", "stageGrid"];
+  const heads = ["iteration", "round", "networkB", "tvStage", "assignedTvs", "lo", "hi", "tvUpdatesOff", "stageGrid"];
   return (
     <Table className={GRID_CLS}>
       <TableHeader>
@@ -374,6 +374,14 @@ export function PairsView({
               >
                 {p.id}
               </Badge>
+            </TableCell>
+            {/* round: probe-fired re-rounds (2+) vs the initial round-1 pairs */}
+            <TableCell className={tdCls}>
+              {p.round != null ? (
+                <span style={p.round > 1 ? { color: "#ca8a04", fontWeight: 600 } : undefined}>{p.round}</span>
+              ) : (
+                ""
+              )}
             </TableCell>
             <TableCell className={tdCls}>{p.nb}</TableCell>
             <TableCell className={tdCls}>
