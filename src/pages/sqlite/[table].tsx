@@ -552,10 +552,24 @@ export default function TablePage() {
       { field: "greenNetwork", afterColumn: "networkB" },
       // keep the decoded full-name column next to the a/b side code
       { field: "green", afterColumn: "greenNetwork" },
+      // experiment: depeg side re-derived from price-move vs the previous
+      // iteration — inserted right after networkB (so it sits next to the
+      // event-orientation networkA/B). Absent in older files → simply skipped,
+      // leaving their layout unchanged.
+      { field: "gnatNetworkA", afterColumn: "networkB" },
+      { field: "gnatNetworkB", afterColumn: "gnatNetworkA" },
+      // poop = the one orientation-dependent gate, under event vs gnat orientation.
+      { field: "poop", afterColumn: "gnatNetworkB" },
+      { field: "gnatPoop", afterColumn: "poop" },
       { field: "totalTime", afterColumn: "sent" },
       { field: "terminationReason", afterColumn: "totalTime" },
       { field: "tokenPriceA", afterColumn: "terminationReason" },
       { field: "tokenPriceB", afterColumn: "tokenPriceA" },
+      // previous iteration's prices (gnat baseline), each next to its current
+      // value → tokenPriceA, prevTokenPriceA, tokenPriceB, prevTokenPriceB.
+      // Absent in older files → skipped, layout unchanged.
+      { field: "prevTokenPriceA", afterColumn: "tokenPriceA" },
+      { field: "prevTokenPriceB", afterColumn: "tokenPriceB" },
     ],
     IterationGroup: [
       { field: "totalTime", afterColumn: "rounds" },
@@ -574,6 +588,51 @@ export default function TablePage() {
       (greenNetwork === "b" && field === "networkB");
     if (isGreen) return { backgroundColor: "rgba(34, 197, 94, 0.07)" };
     return { backgroundColor: "rgba(239, 68, 68, 0.07)" };
+  };
+
+  // The experiment's signal, shared by the grid cells and the detail dialog.
+  const amberHighlight = { backgroundColor: "rgba(245, 158, 11, 0.14)", fontWeight: 600 };
+  // gnat* re-derives the depeg side from price movement — flagged when it
+  // DISAGREES with the event orientation (gnatNetworkA is the counterparty).
+  const gnatFlipped = (row: any) => row?.gnatNetworkA != null && row.gnatNetworkA !== row.networkA;
+  // The gnat orientation would have flipped the poop gate (poop != gnatPoop).
+  const poopFlipped = (row: any) =>
+    row?.poop != null && row?.gnatPoop != null && row.poop !== row.gnatPoop;
+
+  const gnatCellStyle = (params: any) => (gnatFlipped(params.data) ? amberHighlight : null);
+  const poopCellStyle = (params: any) => (poopFlipped(params.data) ? amberHighlight : null);
+
+  // tokenPriceA/B: when the previous iteration's price exists, show the move
+  // inline next to the current value — an up/down arrow + % change, green when
+  // the price rose, red when it fell — so you can read who moved and by how much.
+  const fmtPrice = (n: number) => (isFinite(n) ? String(Number(n.toPrecision(7))) : String(n));
+  // Shared up/down descriptor for a current price vs its previous value — used
+  // by both the grid cell and the detail dialog. null when there's no baseline.
+  const priceMove = (cur: number, prev: number | null | undefined) => {
+    if (prev == null || !isFinite(cur)) return null;
+    const delta = cur - prev;
+    const pct = prev !== 0 ? (delta / prev) * 100 : null;
+    const sign = delta > 0 ? "+" : "";
+    return {
+      color: delta > 0 ? "#16a34a" : delta < 0 ? "#dc2626" : "#9ca3af",
+      arrow: delta > 0 ? "▲" : delta < 0 ? "▼" : "▬",
+      move: pct == null ? `${sign}${fmtPrice(delta)}` : `${sign}${pct.toFixed(2)}%`,
+      title: `prev ${fmtPrice(prev)} → ${fmtPrice(cur)}  (Δ ${sign}${fmtPrice(delta)})`,
+    };
+  };
+  const priceMoveRenderer = (prevField: string) => (params: any) => {
+    const cur = params.value;
+    if (cur == null) return null;
+    const m = priceMove(cur, params.data?.[prevField]);
+    if (!m) return <span>{fmtPrice(cur)}</span>;
+    return (
+      <span title={m.title}>
+        {fmtPrice(cur)}
+        <span style={{ color: m.color, marginLeft: 6, fontSize: "0.85em", fontWeight: 600 }}>
+          {m.arrow} {m.move}
+        </span>
+      </span>
+    );
   };
 
   const columnDefs = useMemo(() => {
@@ -615,7 +674,19 @@ export default function TablePage() {
       if (["Iteration", "Iteration2"].includes(tableName) && (column === "networkA" || column === "networkB")) {
         colDef.cellStyle = networkCellStyle(column);
       }
-      if (["id", "eventId", "networkA", "networkB", "greenNetwork", "totalTime"].includes(column)) {
+      if (tableName === "Iteration2" && (column === "gnatNetworkA" || column === "gnatNetworkB")) {
+        colDef.cellStyle = gnatCellStyle;
+      }
+      if (tableName === "Iteration2" && (column === "poop" || column === "gnatPoop")) {
+        colDef.cellStyle = poopCellStyle;
+      }
+      if (tableName === "Iteration2" && (column === "tokenPriceA" || column === "tokenPriceB")) {
+        colDef.cellRenderer = priceMoveRenderer(
+          column === "tokenPriceA" ? "prevTokenPriceA" : "prevTokenPriceB",
+        );
+        colDef.minWidth = 150;
+      }
+      if (["id", "eventId", "networkA", "networkB", "gnatNetworkA", "gnatNetworkB", "poop", "gnatPoop", "greenNetwork", "totalTime"].includes(column)) {
         colDef.maxWidth = 140;
       }
       cols.push(colDef);
@@ -790,6 +861,39 @@ export default function TablePage() {
   const renderValueWithType = (value: any, type: ValueType, rootCtx: Record<string, any>, key?: string) => {
     if (["routeId", "sellRouteId"].includes(key || "")) {
       value = `${value}`.replace("rev_", "");
+    }
+
+    // gnat pair + poop pair: mirror the grid's amber flip-highlight here.
+    if (key === "gnatNetworkA" || key === "gnatNetworkB") {
+      return (
+        <Badge variant={"outline"} style={gnatFlipped(rootCtx) ? amberHighlight : undefined}>
+          {value}
+        </Badge>
+      );
+    }
+    if (key === "poop" || key === "gnatPoop") {
+      return (
+        <Badge variant={"outline"} style={poopFlipped(rootCtx) ? amberHighlight : undefined}>
+          {value}
+        </Badge>
+      );
+    }
+
+    // tokenPriceA/B: show the move vs the previous iteration's price inline.
+    if (key === "tokenPriceA" || key === "tokenPriceB") {
+      const cur = typeof value === "number" ? value : Number(value);
+      const prev = rootCtx[key === "tokenPriceA" ? "prevTokenPriceA" : "prevTokenPriceB"];
+      const m = priceMove(cur, prev);
+      return (
+        <span className="inline-flex items-center gap-2" title={m?.title}>
+          <Badge variant={"outline"}>{fmtPrice(cur)}</Badge>
+          {m && (
+            <span style={{ color: m.color, fontWeight: 600 }}>
+              {m.arrow} {m.move}
+            </span>
+          )}
+        </span>
+      );
     }
 
     if (type === ValueType._Timestemp) {
