@@ -52,6 +52,8 @@ export function getExplorerUrl(network: string) {
       return "https://sonicscan.org";
     case "Hyperevm":
       return "https://hyperevmscan.io";
+    case "Robinhood":
+      return "https://rh-scan.xyz";
   }
   return "https://blockscan.com";
 }
