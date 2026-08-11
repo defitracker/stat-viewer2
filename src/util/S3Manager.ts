@@ -1,8 +1,12 @@
-import S3, {
-  DeleteObjectRequest,
-  GetObjectRequest,
-  ListObjectsRequest,
-} from "aws-sdk/clients/s3";
+import {
+  S3Client,
+  ListObjectsCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+  type _Object,
+  type ListObjectsCommandOutput,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 type CS3Manager = {
   bucketName: string;
@@ -15,7 +19,7 @@ class CS3Connect {
   private manager: S3Manager | null = null;
 
   public async connect(data: CS3Manager): Promise<S3Manager | Error> {
-    const s3 = new S3({
+    const s3 = new S3Client({
       region: data.region,
       credentials: {
         accessKeyId: data.accessKeyId,
@@ -23,17 +27,13 @@ class CS3Connect {
       },
     });
 
-    const listParams: ListObjectsRequest = {
-      Bucket: data.bucketName,
-    };
-
     try {
-      await s3.listObjects(listParams).promise();
+      await s3.send(new ListObjectsCommand({ Bucket: data.bucketName }));
       const manager = new S3Manager(s3, data.bucketName);
       this.manager = manager;
       return manager;
-    } catch (e: any) {
-      return e;
+    } catch (e) {
+      return e as Error;
     }
   }
 
@@ -44,31 +44,30 @@ class CS3Connect {
 
 export const S3Connect = new CS3Connect();
 
+export type { _Object as S3Object };
+
 export class S3Manager {
-  private s3: S3;
+  private s3: S3Client;
   private bucketName: string;
 
-  constructor(s3: S3, bucketName: string) {
+  constructor(s3: S3Client, bucketName: string) {
     this.s3 = s3;
     this.bucketName = bucketName;
   }
 
   public async getObject(key: string) {
-    const getParams: GetObjectRequest = {
-      Bucket: this.bucketName,
-      Key: key,
-    };
-
     try {
-      const data = await this.s3.getObject(getParams).promise();
+      const data = await this.s3.send(
+        new GetObjectCommand({ Bucket: this.bucketName, Key: key })
+      );
       return data.Body
         ? {
-            body: data.Body,
+            body: await data.Body.transformToByteArray(),
             contentType: data.ContentType,
             filename: key.split("/").pop() || "unknown_name",
           }
         : undefined;
-    } catch (e: any) {
+    } catch (e) {
       console.error("[S3Manager] error getObject", e);
       return undefined;
     }
@@ -76,43 +75,38 @@ export class S3Manager {
 
   /** Short-lived signed GET url — lets the browser fetch() the object as a stream
    *  (progress + incremental save) instead of buffering it in the aws-sdk. */
-  public getSignedUrl(key: string): string {
-    return this.s3.getSignedUrl("getObject", {
-      Bucket: this.bucketName,
-      Key: key,
-      Expires: 600,
-    });
+  public async getSignedUrl(key: string): Promise<string> {
+    return getSignedUrl(
+      this.s3,
+      new GetObjectCommand({ Bucket: this.bucketName, Key: key }),
+      { expiresIn: 600 }
+    );
   }
 
   public async deleteObject(key: string) {
-    const deleteParams: DeleteObjectRequest = {
-      Bucket: this.bucketName,
-      Key: key,
-    };
-
-    await this.s3.deleteObject(deleteParams).promise();
+    await this.s3.send(
+      new DeleteObjectCommand({ Bucket: this.bucketName, Key: key })
+    );
   }
 
   public async listObjects() {
     let iter = 0;
-    let marker = undefined;
-    let allData = [];
+    let marker: string | undefined = undefined;
+    const allData: _Object[] = [];
 
     while (iter === 0 || marker !== undefined) {
-      const listParams: ListObjectsRequest = {
-        Bucket: this.bucketName,
-        // Prefix: "wo_",
-      };
-      if (marker) {
-        listParams.Marker = marker;
-      }
-
-      const data = await this.s3.listObjects(listParams).promise();
+      const data: ListObjectsCommandOutput = await this.s3.send(
+        new ListObjectsCommand({
+          Bucket: this.bucketName,
+          // Prefix: "wo_",
+          Marker: marker,
+        })
+      );
       console.log("data", iter, data.Contents?.length);
 
       const filteredData =
         data.Contents?.filter((d) => {
-          let check_aa = localStorage.getItem("aa") === "1";
+          const check_aa = localStorage.getItem("aa") === "1";
           return (
             (check_aa && d.Key?.startsWith("aa_")) ||
             d.Key?.startsWith("wo_") ||

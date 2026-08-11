@@ -15,9 +15,9 @@ export default function SqliteHome() {
 
   useEffect(() => {
     if (!db) {
-      return navigate("/");
+      navigate("/");
     }
-  }, [db]);
+  }, [db, navigate]);
 
   if (!db) return <></>;
 

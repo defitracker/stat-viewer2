@@ -47,7 +47,7 @@ export default function SQLiteLayout({ children }: { children: React.ReactNode }
   const handleDownload = () => {
     if (!db || !filename) return;
     const data = db.export();
-    const blob = new Blob([data], { type: "application/x-sqlite3" });
+    const blob = new Blob([data as BlobPart], { type: "application/x-sqlite3" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

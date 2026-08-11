@@ -2,7 +2,7 @@ import { useSqliteStore } from "@/util/sqliteStore";
 import { Database } from "sql.js";
 import { useShallow } from "zustand/react/shallow";
 
-import ReactJson from "react-json-view";
+import ReactJson from "@microlink/react-json-view";
 
 export const tableName = "EvInfo";
 

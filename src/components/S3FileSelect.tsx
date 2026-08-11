@@ -22,8 +22,7 @@ import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-quartz.css";
 
 import { Input } from "@/components/ui/input";
-import { S3Connect, S3Manager } from "@/util/S3Manager";
-import S3 from "aws-sdk/clients/s3";
+import { S3Connect, S3Manager, type S3Object } from "@/util/S3Manager";
 import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 
@@ -71,7 +70,7 @@ function getTimeStarted(key: string | undefined) {
 
 export default function S3FileSelect() {
   const [loading, setLoading] = useState(false);
-  const [files, setFiles] = useState<null | S3.ObjectList>(null);
+  const [files, setFiles] = useState<null | S3Object[]>(null);
   const {
     credentials,
     autoConnect,
@@ -134,7 +133,7 @@ export default function S3FileSelect() {
     inFlight.current.add(filename);
     setDownloads((d) => ({ ...d, [filename]: 0 }));
     try {
-      const resp = await fetch(manager.getSignedUrl(filename));
+      const resp = await fetch(await manager.getSignedUrl(filename));
       if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
       const total = Number(resp.headers.get("content-length")) || expectedSize || 0;
       const reader = resp.body.getReader();
@@ -423,7 +422,7 @@ export default function S3FileSelect() {
 
       const objectRes = await manager.getObject(e.data.filename);
       if (objectRes !== undefined) {
-        const blob = new Blob([objectRes.body as ArrayBuffer], {
+        const blob = new Blob([objectRes.body as BlobPart], {
           type: objectRes.contentType,
         });
         const file = new File([blob], objectRes.filename, {

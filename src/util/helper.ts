@@ -8,8 +8,8 @@ export async function readSqlFile(file: Blob) {
 export async function readSqlFileBuffer(arrayBuffer: ArrayBuffer) {
   const SQL = await initSqlJs({
     locateFile: (file) => {
-      if (file === "sql-wasm.wasm") {
-        return "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.12.0/sql-wasm.wasm";
+      if (file.endsWith(".wasm")) {
+        return `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.14.1/${file}`;
       }
       return `https://sql.js.org/dist/${file}`;
     },

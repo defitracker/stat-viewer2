@@ -6,7 +6,7 @@
 import React, { useEffect, useRef } from "react";
 import { Database } from "sql.js";
 import BigNumber from "bignumber.js";
-import ReactJson from "react-json-view";
+import ReactJson from "@microlink/react-json-view";
 import functionPlot, { FunctionPlotOptions } from "function-plot";
 import { Badge } from "@/components/ui/badge";
 import {
