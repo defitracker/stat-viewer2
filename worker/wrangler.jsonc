@@ -1,0 +1,13 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "stat-viewer2-s3-proxy",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-17",
+  "observability": { "enabled": true },
+  "vars": {
+    "S3_ENDPOINT": "https://objects.nyc.storage.sh",
+    // Every origin the app is served from. Not a secret — it only decides who
+    // may relay through here, and callers still need valid S3 keys.
+    "ALLOWED_ORIGINS": "https://defitracker.github.io,http://localhost:4444"
+  }
+}

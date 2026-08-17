@@ -41,6 +41,21 @@ export const updateCommonjsPlugin = (): Plugin => {
 export default defineConfig({
   plugins: [react(), Pages(), tailwindcss(), updateCommonjsPlugin()],
   base: "/stat-viewer2/",
+  // latitude.sh's S3 gateway serves no CORS headers and PutBucketCors is
+  // NotImplemented, so the browser can't talk to it directly. Proxy in dev.
+  //
+  // SigV4 signs BOTH the host header and the URI path, so neither may be
+  // touched: the app signs for objects.nyc.storage.sh and only *sends* here
+  // (see S3Manager), changeOrigin restores that host, and there is no rewrite.
+  // Keyed on the bucket path — add a line here for each extra bucket.
+  server: {
+    proxy: {
+      "/workerresolved": {
+        target: "https://objects.nyc.storage.sh",
+        changeOrigin: true,
+      },
+    },
+  },
   build: {
     sourcemap: true,
     rollupOptions: {

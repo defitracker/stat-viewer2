@@ -15,16 +15,77 @@ type CS3Manager = {
   secretAccessKey: string;
 };
 
+/**
+ * latitude.sh object storage. Deliberately NOT user-editable: this is the host
+ * SigV4 signs for, and typing the proxy's URL here instead silently produces
+ * SignatureDoesNotMatch — the proxy presents this host upstream, so a signature
+ * made for any other host cannot match.
+ */
+export const S3_ENDPOINT = "https://objects.nyc.storage.sh";
+
+/** Origin that relays to S3_ENDPOINT while adding CORS headers: the vite proxy
+ *  in dev, the Cloudflare worker (see worker/) in prod. Empty = talk direct. */
+const PROXY =
+  import.meta.env.VITE_S3_PROXY ?? (import.meta.env.DEV ? location.origin : "");
+
+/**
+ * Send S3 traffic to PROXY while still *signing* for `endpoint`.
+ *
+ * SigV4 covers the host header and the URI path, so the proxy has to receive
+ * and forward both verbatim — only the TCP destination may differ. Patching
+ * fetch is what makes that one change: it catches the SDK's own requests and
+ * the presigned-URL fetches in S3FileSelect alike, without reaching into
+ * @aws-sdk middleware internals that shift between releases.
+ *
+ * ponytail: global patch, scoped to one host. Swap for a custom SDK
+ * requestHandler + a presign rewrite if anything else ever needs its own.
+ */
+let proxyInstalled = false;
+function routeThroughProxy(endpoint: string) {
+  if (proxyInstalled || !PROXY || !endpoint) return;
+  proxyInstalled = true;
+
+  const signedHost = new URL(endpoint).host;
+  const proxy = new URL(PROXY);
+  const original = window.fetch.bind(window);
+
+  window.fetch = (input, init) => {
+    const raw =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.href
+        : input.url;
+    let url: URL;
+    try {
+      url = new URL(raw, location.href);
+    } catch {
+      return original(input, init);
+    }
+    if (url.host !== signedHost) return original(input, init);
+
+    url.protocol = proxy.protocol;
+    url.host = proxy.host;
+    return input instanceof Request
+      ? original(new Request(url.href, input), init)
+      : original(url.href, init);
+  };
+}
+
 class CS3Connect {
   private manager: S3Manager | null = null;
 
   public async connect(data: CS3Manager): Promise<S3Manager | Error> {
+    routeThroughProxy(S3_ENDPOINT);
+
     const s3 = new S3Client({
       region: data.region,
       credentials: {
         accessKeyId: data.accessKeyId,
         secretAccessKey: data.secretAccessKey,
       },
+      endpoint: S3_ENDPOINT,
+      forcePathStyle: true,
     });
 
     try {

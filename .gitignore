@@ -23,5 +23,9 @@ dist-ssr
 *.sln
 *.sw?
 test/.build
+.wrangler
 # local test data — never commit worker analytics files
 test/fixtures
+
+# On purpose, for VITE_S3_PROXY. 
+!.env.production

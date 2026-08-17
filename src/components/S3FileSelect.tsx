@@ -45,14 +45,20 @@ import { useNavigate } from "react-router-dom";
 
 const formSchema = z.object({
   region: z.string().min(1, { message: "region is required" }),
+  // No length checks: latitude.sh key lengths differ from AWS's 20/40.
   bucketName: z.string().min(1, { message: "bucketName is required" }),
-  accessKeyId: z
-    .string()
-    .length(20, { message: "AccessKeyId must be 20 characters." }),
+  accessKeyId: z.string().min(1, { message: "AccessKeyId is required" }),
   secretAccessKey: z
     .string()
-    .length(40, { message: "SecretAccessKey must be 40 characters." }),
+    .min(1, { message: "SecretAccessKey is required" }),
 });
+
+const DEFAULTS = {
+  region: "nyc",
+  bucketName: "workerresolved",
+  accessKeyId: "",
+  secretAccessKey: "",
+};
 
 function getFileSizeString(size: number | undefined) {
   if (size === undefined) return "unknown size";
@@ -84,12 +90,7 @@ export default function S3FileSelect() {
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      region: "us-east-1",
-      bucketName: "workerresolved",
-      accessKeyId: "",
-      secretAccessKey: "",
-    },
+    defaultValues: DEFAULTS,
   });
 
   const navigate = useNavigate();
@@ -273,19 +274,21 @@ export default function S3FileSelect() {
   // Load stored credentials on mount and auto-connect if enabled
   useEffect(() => {
     if (credentials) {
-      form.reset({
+      // Any stored `endpoint` is ignored on purpose — see S3_ENDPOINT.
+      const saved = {
         region: credentials.region,
         bucketName: credentials.bucketName,
         accessKeyId: credentials.accessKeyId,
         secretAccessKey: credentials.secretAccessKey,
-      });
+      };
+      form.reset(saved);
 
       // Auto-connect if enabled (only once)
       if (autoConnect && !autoConnectAttempted.current) {
         autoConnectAttempted.current = true;
         // Small delay to ensure form is populated
         setTimeout(() => {
-          onSubmit(credentials, false);
+          onSubmit(saved, false);
         }, 100);
       }
     }
@@ -381,12 +384,7 @@ export default function S3FileSelect() {
                 variant="outline"
                 onClick={() => {
                   clearCredentials();
-                  form.reset({
-                    region: "us-east-1",
-                    bucketName: "workerresolved",
-                    accessKeyId: "",
-                    secretAccessKey: "",
-                  });
+                  form.reset(DEFAULTS);
                 }}
               >
                 Clear saved
