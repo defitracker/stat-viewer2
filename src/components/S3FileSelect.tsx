@@ -23,7 +23,7 @@ import "ag-grid-community/styles/ag-theme-quartz.css";
 
 import { Input } from "@/components/ui/input";
 import { S3Connect, S3Manager, type S3Object } from "@/util/S3Manager";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -31,6 +31,8 @@ import { z } from "zod";
 import clsx from "clsx";
 import { useSqliteStore } from "@/util/sqliteStore";
 import { useS3CredentialsStore } from "@/util/s3CredentialsStore";
+import { matchPrefix, OTHER, useS3PrefixStore } from "@/util/s3PrefixStore";
+import { toast } from "@/util/toast";
 import { readDbTables, readSqlFile } from "@/util/helper";
 import * as idb from "@/util/idb";
 import {
@@ -87,6 +89,16 @@ export default function S3FileSelect() {
     setRememberCreds,
   } = useS3CredentialsStore();
   const autoConnectAttempted = useRef(false);
+  const { prefixes, togglePrefix } = useS3PrefixStore();
+
+  // `files` holds the raw bucket listing; the grid, the totals and "Delete ALL below"
+  // all work off `visibleFiles` so an unchecked prefix is never touched by accident.
+  const counts = useMemo(() => {
+    const c: Record<string, number> = Object.fromEntries(Object.keys(prefixes).map((p) => [p, 0]));
+    for (const f of files ?? []) c[matchPrefix(f.Key, prefixes)]++;
+    return c;
+  }, [files, prefixes]);
+  const visibleFiles = useMemo(() => files?.filter((f) => prefixes[matchPrefix(f.Key, prefixes)]) ?? [], [files, prefixes]);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -418,24 +430,32 @@ export default function S3FileSelect() {
 
       setLoading(true);
 
-      const objectRes = await manager.getObject(e.data.filename);
-      if (objectRes !== undefined) {
-        const blob = new Blob([objectRes.body as BlobPart], {
-          type: objectRes.contentType,
-        });
-        const file = new File([blob], objectRes.filename, {
-          type: objectRes.contentType,
-        });
-        const db = await readSqlFile(file);
-        const tables = readDbTables(db);
-        useSqliteStore.setState({ db, tables, filename: objectRes.filename });
-        await idb.addFile(file);
-        navigate(tables.length > 0 ? `/sqlite/${tables[0]}` : "/sqlite");
+      try {
+        const objectRes = await manager.getObject(e.data.filename);
+        if (objectRes !== undefined) {
+          const blob = new Blob([objectRes.body as BlobPart], {
+            type: objectRes.contentType,
+          });
+          const file = new File([blob], objectRes.filename, {
+            type: objectRes.contentType,
+          });
+          const db = await readSqlFile(file);
+          const tables = readDbTables(db);
+          useSqliteStore.setState({ db, tables, filename: objectRes.filename });
+          await idb.addFile(file);
+          navigate(tables.length > 0 ? `/sqlite/${tables[0]}` : "/sqlite");
+        }
+      } catch (err) {
+        // Anything not a sqlite file throws in readSqlFile — without this the grid
+        // stayed stuck in animate-pulse until a page reload.
+        console.error("Failed to open", e.data.filename, err);
+        toast(`Can\u2019t open ${e.data.filename}: not a readable sqlite file`, "error");
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
-    const rowData: FileData[] = files.map((f) => ({
+    const rowData: FileData[] = visibleFiles.map((f) => ({
       filename: f.Key || "{unknown}",
       filesize: f.Size || 0,
       timeStarted: getTimeStarted(f.Key),
@@ -578,8 +598,13 @@ export default function S3FileSelect() {
 
               setLoading(true);
 
-              const filesToDelete = files
-                .filter((f) => getTimeStarted(f.Key) < thisFileTimeStarted)
+              // Only ever the rows on screen, and never timeStarted 0 — that is the
+              // "unparsable filename" sentinel, which sorted below every real file.
+              const filesToDelete = visibleFiles
+                .filter((f) => {
+                  const t = getTimeStarted(f.Key);
+                  return t > 0 && t < thisFileTimeStarted;
+                })
                 .sort((a, b) => getTimeStarted(b.Key) - getTimeStarted(a.Key));
 
               const filenamesToDelete = filesToDelete
@@ -645,8 +670,8 @@ export default function S3FileSelect() {
     );
   };
 
-  const totalSize = files
-    ?.map((f) => f.Size ?? 0)
+  const totalSize = visibleFiles
+    .map((f) => f.Size ?? 0)
     .reduce((acc, cur) => acc + cur, 0);
 
   return (
@@ -668,6 +693,31 @@ export default function S3FileSelect() {
                 <div className="flex justify-between items-center">
                   Select file from S3 ({getFileSizeString(totalSize)})
                   <div className="flex gap-2 items-center">
+                    <div className="flex gap-1 items-center mr-2">
+                      {/* Only prefixes the bucket actually holds; amber = hidden files. */}
+                      {Object.entries(prefixes)
+                        .filter(([p]) => counts[p] > 0)
+                        .map(([p, on]) => (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => togglePrefix(p)}
+                            title={
+                              p === OTHER
+                                ? "Keys matching none of the known prefixes"
+                                : `Keys starting with "${p}"`
+                            }
+                            className={clsx(
+                              "rounded-full border px-2 py-0.5 text-xs font-mono font-normal transition-colors",
+                              on
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "border-amber-500 text-amber-600 hover:bg-muted"
+                            )}
+                          >
+                            {p === OTHER ? "other" : p} {counts[p]}
+                          </button>
+                        ))}
+                    </div>
                     {selected.length > 0 && (
                       <Button
                         variant="default"

@@ -165,17 +165,9 @@ export class S3Manager {
       );
       console.log("data", iter, data.Contents?.length);
 
-      const filteredData =
-        data.Contents?.filter((d) => {
-          const check_aa = localStorage.getItem("aa") === "1";
-          return (
-            (check_aa && d.Key?.startsWith("aa_")) ||
-            d.Key?.startsWith("wo_") ||
-            d.Key?.startsWith("worker") ||
-            d.Key?.startsWith("evinfo_")
-          );
-        }) ?? [];
-      allData.push(...filteredData);
+      // Unfiltered on purpose: prefix selection lives in s3PrefixStore so the picker
+      // can show a live count per prefix, including keys nothing matches.
+      allData.push(...(data.Contents ?? []));
 
       iter += 1;
 

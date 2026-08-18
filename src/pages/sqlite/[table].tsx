@@ -36,7 +36,9 @@ enum ValueType {
 }
 
 function buildExplorerFullUrl(explorerUrl: string, valueType: ValueType, value: string) {
-  if (valueType === ValueType._Address) return `${explorerUrl}/address/${value}`;
+  // Solscan serves accounts at /account/; every EVM scanner uses /address/.
+  const addressPath = explorerUrl.includes("solscan") ? "account" : "address";
+  if (valueType === ValueType._Address) return `${explorerUrl}/${addressPath}/${value}`;
   if (valueType === ValueType._TxHash) return `${explorerUrl}/tx/${value}`;
   if (valueType === ValueType._BlockNumber) return `${explorerUrl}/block/${value}`;
   return "#";
@@ -776,16 +778,26 @@ export default function TablePage() {
   // when the target is absent (dangling link across a rotated file) or its
   // table doesn't exist (older-worker file) instead of failing silently.
   const openEntry = (table: string, id: string) => {
-    try {
-      const res = db.exec(`SELECT * FROM ${table} WHERE id = "${id}"`)[0];
-      if (!res?.values?.[0]) {
-        toast(`No ${table} “${id}” in this file`, "warn");
-        return;
+    // Iteration ids carry over across worker eras but the table was renamed, and a file
+    // holds one or the other — so fall through to the sibling before giving up.
+    const candidates = table === "Iteration" ? ["Iteration", "Iteration2"] : [table];
+    let missingTables = 0;
+    for (const t of candidates) {
+      try {
+        const res = db.exec(`SELECT * FROM ${t} WHERE id = "${id}"`)[0];
+        if (res?.values?.[0]) {
+          pushSelectedItem({ table: t, item: bringColumnsValuesToItem(res.columns, res.values[0]) });
+          return;
+        }
+      } catch (e) {
+        missingTables += 1;
+        console.error(`Failed to open ${t} entry`, id, e);
       }
-      pushSelectedItem({ table, item: bringColumnsValuesToItem(res.columns, res.values[0]) });
-    } catch (e) {
+    }
+    if (missingTables === candidates.length) {
       toast(`Can’t open ${table} “${id}”: no ${table} table in this file`, "error");
-      console.error(`Failed to open ${table} entry`, id, e);
+    } else {
+      toast(`No ${table} “${id}” in this file`, "warn");
     }
   };
 
@@ -934,6 +946,10 @@ export default function TablePage() {
       }
       if (!network && key?.endsWith("B")) {
         network = rootCtx[`networkB`];
+      }
+      // IterationGroup rows carry only eventNetwork.
+      if (!network) {
+        network = rootCtx[`eventNetwork`];
       }
       if (network) {
         // Value may include ","
