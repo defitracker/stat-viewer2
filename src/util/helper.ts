@@ -24,40 +24,6 @@ export function readDbTables(db: Database) {
   return tables as string[];
 }
 
-export function getExplorerUrl(network: string) {
-  switch (network) {
-    case "Ethereum":
-      return "https://etherscan.io";
-    case "Binance":
-      return "https://bscscan.com";
-    case "Arbitrum":
-      return "https://arbiscan.io";
-    case "Polygon":
-      return "https://polygonscan.com";
-    case "Base":
-      return "https://basescan.org";
-    case "Solana":
-      return "https://solscan.io";
-    case "Snowtrace":
-      return "https://snowtrace.io";
-    case "Optimism":
-      return "https://optimistic.etherscan.io";
-    case "Gnosis":
-      return "https://gnosisscan.io";
-    case "Unichain":
-      return "https://uniscan.xyz";
-    case "Berachain":
-      return "https://berascan.com";
-    case "Sonic":
-      return "https://sonicscan.org";
-    case "Hyperevm":
-      return "https://hyperevmscan.io";
-    case "Robinhood":
-      return "https://rh-scan.xyz";
-  }
-  return "https://blockscan.com";
-}
-
 const TERMINATION_EXACT: Record<string, string> = {
   ntt: "No tracking tokens in pool",
   bale: "Balancer id err",

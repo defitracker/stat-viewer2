@@ -10,6 +10,7 @@ import { readDbTables, readSqlFile } from "@/util/helper";
 import { useSqliteStore } from "@/util/sqliteStore";
 import { useS3CredentialsStore } from "@/util/s3CredentialsStore";
 import { Trash2, X } from "lucide-react";
+import ExplorerSettings from "@/components/ExplorerSettings";
 
 interface StoredFile {
   name: string;
@@ -129,7 +130,10 @@ export default function IndexLayout({ children, topRight }: { children: React.Re
               <BreadcrumbItem className="hidden md:block">Home, file select</BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-          <div className="ml-auto">{topRight}</div>
+          <div className="ml-auto flex items-center gap-2">
+            <ExplorerSettings />
+            {topRight}
+          </div>
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4">{children}</div>
       </SidebarInset>

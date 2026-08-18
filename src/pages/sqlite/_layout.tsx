@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { useSqliteStore } from "@/util/sqliteStore";
+import ExplorerSettings from "@/components/ExplorerSettings";
 import { Download, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
@@ -173,6 +174,7 @@ export default function SQLiteLayout({ children }: { children: React.ReactNode }
           </Breadcrumb>
           <div className="ml-auto flex items-center gap-2">
             {filename}
+            <ExplorerSettings />
             {db && (
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleDownload}>
                 <Download className="h-4 w-4" />

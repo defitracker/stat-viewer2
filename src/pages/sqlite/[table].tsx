@@ -8,7 +8,8 @@ import SQLiteLayout from "./_layout";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCaption, TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { decodeTerminationReason, getExplorerUrl } from "@/util/helper";
+import { decodeTerminationReason } from "@/util/helper";
+import { FALLBACK_EXPLORER, useExplorerStore } from "@/util/explorerStore";
 import { toast } from "@/util/toast";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import BigNumber from "bignumber.js";
@@ -332,6 +333,7 @@ export default function TablePage() {
   }, [tableName]);
 
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
+  const explorers = useExplorerStore((state) => state.explorers);
   const filename = useSqliteStore((state) => state.filename);
   const pinnedVersion = useSqliteStore((state) => state.pinnedVersion);
 
@@ -939,7 +941,7 @@ export default function TablePage() {
         return (
           <div className="flex gap-1">
             {values.map((value, i) => {
-              const explorerUrl = getExplorerUrl(network);
+              const explorerUrl = explorers[network] || FALLBACK_EXPLORER;
               const fullUrl = buildExplorerFullUrl(explorerUrl, type, value);
               return (
                 <a key={i} href={fullUrl} target="_blank">
